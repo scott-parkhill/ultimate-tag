@@ -31,3 +31,5 @@ To compile the program, simply type `make`. To run the game, type `make run`. To
 For those on other operating systems, compilation should be done with the following command, in however way it must be done there (such as running the compiler from the same directory as this project): `dasm ultimate_tag.asm -f3 -oultimate_tag.atari -Iheaders`.
 
 The file to run in the emulator is then `ultimate_tag.atari`.
+
+[Github link.](https://github.com/scott-parkhill/ultimate-tag)
