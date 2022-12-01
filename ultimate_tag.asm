@@ -11,6 +11,10 @@
     seg.u Variables         ; Defines uninitialized segment named Variables.
     org $80                 ; Set origin of segment at beginning of RAM.
 
+PlayerIt        .byte       ; 0 for it, not zero for not it.
+PlayerDirection .byte       ; 0 for left, not zero for right.
+NPCDireciton    .byte       ; 0 for left, not zero for right.
+
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
     org $F000               ; Set origin of segment at beginning of cartridge ROM.
@@ -19,10 +23,15 @@
 Initialize                  ; Defines the Initialize subroutine.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
+    ; Accumulator starts at 0 from the CLEAN_START macro.
+    STA PlayerIt            ; Sets the player to it.
+    STA NPCDireciton        ; Sets the NPC facing left.
+
     LDA #$9F                ; Loads background colour into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
 
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
+    STA PlayerDirection     ; Sets the player direction to facing right.
     STA VBLANK              ; Sets the register bit value for VBLANK to ON.
 
 
