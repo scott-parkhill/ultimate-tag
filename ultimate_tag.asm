@@ -28,7 +28,7 @@ Initialize                  ; Defines the Initialize subroutine.
     STA ComputerDirection   ; Sets the NPC facing left.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
-    LDA #$9F                ; Loads background colour into the accumulator.
+    LDA #$9F                ; Loads background colour (light blue) into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
 
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
