@@ -13,7 +13,7 @@
 
 PlayerIt        .byte       ; 0 for it, not zero for not it.
 PlayerDirection .byte       ; 0 for left, not zero for right.
-NPCDireciton    .byte       ; 0 for left, not zero for right.
+NPCDirection    .byte       ; 0 for left, not zero for right.
 
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
@@ -89,6 +89,8 @@ PrintingPeriod
 OverscanPeriod
     LDA #2                  ; Put 2 into accumulator again in order to switch on VBLANK.
     STA VBLANK              ; Turn on register indicating vertical blank.
+    JSR SetItColours        ; Set the colours for who is it during the first overscan period.
+
     LDX #30                 ; Make X the line counter for the 30 lines of overscan.
 
 OverscanLoop
@@ -100,7 +102,7 @@ OverscanLoop
 
 ; Subroutine to set the colours for who is it.
 SetItColours
-    LDA PlayerIt            ; Load the player it value into accumulator.
+    LDA #PlayerIt           ; Load the PlayerIt value into the accumulator.
     BNE ComputerRed         ; Go to ComputerRed if the value is non-zero.
 
 PlayerRed
