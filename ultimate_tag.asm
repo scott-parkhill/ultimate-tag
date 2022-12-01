@@ -11,9 +11,9 @@
     seg.u Variables         ; Defines uninitialized segment named Variables.
     org $80                 ; Set origin of segment at beginning of RAM.
 
-PlayerIt        .byte       ; 0 for it, not zero for not it.
-PlayerDirection .byte       ; 0 for left, not zero for right.
-NPCDirection    .byte       ; 0 for left, not zero for right.
+PlayerIt            .byte   ; 0 for it, not zero for not it.
+PlayerDirection     .byte   ; 0 for left, not zero for right.
+ComputerDirection   .byte   ; 0 for left, not zero for right.
 
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
@@ -24,7 +24,7 @@ Initialize                  ; Defines the Initialize subroutine.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
-    STA NPCDirection        ; Sets the NPC facing left.
+    STA ComputerDirection   ; Sets the NPC facing left.
     STA PlayerIt            ; Sets the player to it.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
@@ -40,9 +40,8 @@ Initialize                  ; Defines the Initialize subroutine.
 ; This subroutine controls setting the VSYNC and VBLANK and handles the
 ; three mandatory scanlines required for VSYNC. 
 FrameStart
+    LDA #2                  ; Sets accumulator to 2 in order to set the VSYNC bit.
     STA VSYNC               ; Sets the register bit value for VSYNC to ON.
-                            ; #2 guaranteed to be in register at this point from the Initialize and OverscanPeriod sections.
-                            ; VBLANK is set to ON in the Initialize and OverscanPeriod sections.
 
     ; Outputs the three lines of the VSYNC signal required by the NTSC standard.
     STA WSYNC               ; Strobe the WSYNC register, i.e. signal the CPU to wait for the current
@@ -52,6 +51,8 @@ FrameStart
     LDA #0                  ; Put zero in accumulator so VSYNC can be turned off.
     STA VSYNC               ; Turn off VYSNC.
     ; We now fall into the vertical blank period.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; VBLANK
 
 ; Handles the 37 lines of vertical blank. 76 CPU clock cycles per VBLANK period.
 VBlankPeriod
@@ -70,14 +71,49 @@ VBlankLoop
 
     ; Now fall into the portion with HBLANKS and visible output to TV.
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; VISIBLE FRAME
+
 ; Handles the 192 scanlines of visible frame, as well as the intervening
 ; horizontal blanks. 22 CPU cycles of HBLANK followed by 54 cycles of
 ; drawing to the screen
 VisibleFrame
     LDX #192                ; Have X be the line counter for the 192 scanlines of visible frame.
+    LDY #15                 ; Y here is the memory address offset for the sprites. Sprites are 16 bits, but we want offset for 16th bit to be 15.
+                            ; It should be noted that sprites are upside down so that decrement can be used to save on a compare instruction.
 
 ; Set registers for the TIA within 22 CPU cycles of HBLANK before it starts printing to the screen.
 HBlankPeriod
+    TYA
+    BMI PrintingPeriod
+
+PrintComputer
+    LDA #ComputerDirection  ; If 0, computer is facing left; if non-zero, computer is facing right.
+    BNE PrintComputerRight
+
+PrintComputerLeft
+    LDA LeftFacingSprite,Y  ; Get the sprite bit pattern for the current line to print.
+    STA GRP1                ; Put that bit pattern into the computer player's register.
+    JMP PrintPlayer         ; Computer player registers set, so jump to doing the same for the player.
+
+PrintComputerRight
+    LDA RightFacingSprite,Y ; Get the sprite bit pattern.
+    STA GRP1                ; Set bit pattern in register.
+
+PrintPlayer
+    LDA #PlayerDirection    ; If 0, player is facing left; if non-zero, player is facing right.
+    BNE PrintPlayerRight    ; If not 0, then player is facing right, so go there.
+
+PrintPlayerLeft
+    LDA LeftFacingSprite,Y  ; Get sprite bit pattern.
+    STA GRP0                ; Set bit pattern in player register.
+    JMP DecrementY          ; Done setting up TIA registers for next print cycle, so now go to the print cycle.
+
+PrintPlayerRight
+    LDA RightFacingSprite,Y ; Get sprite bit pattern.
+    STA GRP0                ; Set bit pattern in player register.
+
+DecrementY
+    DEY
 
 ; Do logic operations within 54 CPU cycles while the TIA is printing the image to the screen.
 PrintingPeriod
@@ -85,13 +121,20 @@ PrintingPeriod
     DEX                     ; Decrement our line counter.
     BNE HBlankPeriod        ; Wait for the printing period to be done, then start again.
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; OVERSCAN
+
 ; Handles the 30 lines of overscan, 76 clock cycles each.
 OverscanPeriod
     LDA #2                  ; Put 2 into accumulator again in order to switch on VBLANK.
     STA VBLANK              ; Turn on register indicating vertical blank.
-    JSR SetItColours        ; Set the colours for who is it during the first overscan period.
 
-    LDX #30                 ; Make X the line counter for the 30 lines of overscan.
+    ; TODO Collision logic goes here.
+    STA WSYNC
+
+    JSR SetItColours        ; Set the colours for who is it during the first overscan period.
+    STA WSYNC
+
+    LDX #28                 ; Make X the line counter for the 30 lines of overscan (minus the two already used).
 
 OverscanLoop
     STA WSYNC               ; Strobe.
@@ -99,6 +142,8 @@ OverscanLoop
     BNE OverscanLoop        ; Repeat until X = 0.
 
     JMP FrameStart          ; When the overscan period is complete, start the next frame.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SUBROUTINES
 
 ; Subroutine to set the colours for who is it.
 SetItColours
@@ -117,6 +162,8 @@ ComputerRed
     LDA #0                  ; Load black into accumulator.
     STA COLUP0              ; Set player to black.
     RTS                     ; Return.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
 ; Defines the bitmap for a left-facing sprite.
 LeftFacingSprite
