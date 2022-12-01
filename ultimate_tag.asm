@@ -11,8 +11,6 @@
     seg.u Variables         ; Defines uninitialized segment named Variables.
     org $80                 ; Set origin of segment at beginning of RAM.
 
-BGColour .byte              ; Sets the background colour variable.
-
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
     org $F000               ; Set origin of segment at beginning of cartridge ROM.
@@ -21,8 +19,7 @@ BGColour .byte              ; Sets the background colour variable.
 Initialize                  ; Defines the Initialize subroutine.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
-    LDA #$9F                ; Loads sky blue into the accumulator.
-    STA BGColour            ; Stores the colour into the BGColour variable
+    LDA #$9F                ; Loads background colour into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
 
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
@@ -90,6 +87,44 @@ OverscanLoop
     BNE OverscanLoop        ; Repeat until X = 0.
 
     JMP FrameStart          ; When the overscan period is complete, start the next frame.
+
+; Defines the bitmap for a left-facing sprite.
+LeftFacingSprite
+    .byte #%00000000
+    .byte #%11101110
+    .byte #%00100010
+    .byte #%00100010
+    .byte #%00100010
+    .byte #%00110100
+    .byte #%00001000
+    .byte #%00001000
+    .byte #%00111110
+    .byte #%01001001
+    .byte #%10001001
+    .byte #%10001001
+    .byte #%00011100
+    .byte #%00100010
+    .byte #%00100010
+    .byte #%00011100
+
+; Defines the bitmap for a right-facing sprite.
+RightFacingSprite
+    .byte #%00000000
+    .byte #%01110111
+    .byte #%01000100
+    .byte #%01000100
+    .byte #%01000100
+    .byte #%00101100
+    .byte #%00010000
+    .byte #%00010000
+    .byte #%01111100
+    .byte #%10010010
+    .byte #%10010001
+    .byte #%10010001
+    .byte #%00111000
+    .byte #%01000100
+    .byte #%01000100
+    .byte #%00111000
 
 ; Sets the ROM's capacity to exactly 4K, i.e. $F000 through $FFFF, and tells it where to start execution.
     org $FFFC               ; Set origin as $FFFC, the reset pointer, to tell where to begin execution.
