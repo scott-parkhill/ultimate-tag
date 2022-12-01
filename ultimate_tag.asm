@@ -24,8 +24,9 @@ Initialize                  ; Defines the Initialize subroutine.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
+    STA NPCDirection        ; Sets the NPC facing left.
     STA PlayerIt            ; Sets the player to it.
-    STA NPCDireciton        ; Sets the NPC facing left.
+    JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
     LDA #$9F                ; Loads background colour into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
@@ -96,6 +97,24 @@ OverscanLoop
     BNE OverscanLoop        ; Repeat until X = 0.
 
     JMP FrameStart          ; When the overscan period is complete, start the next frame.
+
+; Subroutine to set the colours for who is it.
+SetItColours
+    LDA PlayerIt            ; Load the player it value into accumulator.
+    BNE ComputerRed         ; Go to ComputerRed if the value is non-zero.
+
+PlayerRed
+    STA COLUP1              ; Accumulator is zero at this point; set NPC to black.
+    LDA #$32                ; Load red into accumulator..
+    STA COLUP0              ; Set player colour register to red.
+    RTS                     ; Return.
+
+ComputerRed
+    LDA #$32                ; Load red into accumulator.
+    STA COLUP1              ; Set NCP to red.
+    LDA #0                  ; Load black into accumulator.
+    STA COLUP0              ; Set player to black.
+    RTS                     ; Return.
 
 ; Defines the bitmap for a left-facing sprite.
 LeftFacingSprite
