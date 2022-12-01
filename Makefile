@@ -1,5 +1,5 @@
 SRC := ultimate_tag.asm
-OUT := ultimate_tag.atari
+OUT := ultimate_tag.bin
 
 all: $(OUT)
 
