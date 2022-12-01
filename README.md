@@ -10,7 +10,7 @@ The objective of *Ultimate Tag* is an age-old one that transcends not only the m
 
 That objective, of course, is to not be *it*. And if you are *it*, you damn well better un-*it* yourself as quickly as you can!
 
-![Ultimate tag!](ultimate-tag.jpg)
+![Ultimate tag!](logo.jpg)
 
 ## Mechanics
 
