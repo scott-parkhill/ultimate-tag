@@ -24,8 +24,8 @@ Initialize                  ; Defines the Initialize subroutine.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
-    STA ComputerDirection   ; Sets the NPC facing left.
     STA PlayerIt            ; Sets the player to it.
+    STA ComputerDirection   ; Sets the NPC facing left.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
     LDA #$9F                ; Loads background colour into the accumulator.
@@ -87,7 +87,7 @@ HBlankPeriod
     BMI PrintingPeriod
 
 PrintComputer
-    LDA #ComputerDirection  ; If 0, computer is facing left; if non-zero, computer is facing right.
+    LDA ComputerDirection   ; If 0, computer is facing left; if non-zero, computer is facing right.
     BNE PrintComputerRight
 
 PrintComputerLeft
@@ -147,12 +147,12 @@ OverscanLoop
 
 ; Subroutine to set the colours for who is it.
 SetItColours
-    LDA #PlayerIt           ; Load the PlayerIt value into the accumulator.
+    LDA PlayerIt            ; Load the PlayerIt value into the accumulator.
     BNE ComputerRed         ; Go to ComputerRed if the value is non-zero.
 
 PlayerRed
     STA COLUP1              ; Accumulator is zero at this point; set NPC to black.
-    LDA #$32                ; Load red into accumulator..
+    LDA #$32                ; Load red into accumulator.
     STA COLUP0              ; Set player colour register to red.
     RTS                     ; Return.
 
