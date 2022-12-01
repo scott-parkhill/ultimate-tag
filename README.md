@@ -10,7 +10,7 @@ The objective of *Ultimate Tag* is an age-old one that transcends not only the m
 
 That objective, of course, is to not be *it*. And if you are *it*, you damn well better un-*it* yourself as quickly as you can!
 
-![Ultimate tag!](ultimate-tag.jpg)
+![Ultimate tag!](logo.jpg)
 
 ## Mechanics
 
@@ -28,8 +28,8 @@ A Makefile has been provided for those on a Linux machine, though this might wor
 
 To compile the program, simply type `make`. To run the game, type `make run`. To remove the compiled binary, type `make clean`.
 
-For those on other operating systems, compilation should be done with the following command, in however way it must be done there (such as running the compiler from the same directory as this project): `dasm ultimate_tag.asm -f3 -oultimate_tag.atari -Iheaders`.
+For those on other operating systems, compilation should be done with the following command, in however way it must be done there (such as running the compiler from the same directory as this project): `dasm ultimate_tag.asm -f3 -oultimate_tag.bin -Iheaders`.
 
-The file to run in the emulator is then `ultimate_tag.atari`.
+The file to run in the emulator is then `ultimate_tag.bin`.
 
 [Github link.](https://github.com/scott-parkhill/ultimate-tag)
