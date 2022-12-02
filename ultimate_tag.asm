@@ -12,8 +12,26 @@
     org $80                 ; Set origin of segment at beginning of RAM.
 
 PlayerIt            .byte   ; 0 for it, not zero for not it.
-PlayerDirection     .byte   ; 0 for left, not zero for right.
-ComputerDirection   .byte   ; 0 for left, not zero for right.
+PowerupTimer        .byte   ; 1 for timer set, 0 for not.
+PowerupCooldown     .byte   ; 1 for timer set, 0 for not.
+
+PlayerDirection     .byte   ; 0 for left, 8 for right (the value to set the reflection bit).
+PrintPlayerSprite   .byte   ; 0 for don't print, anything else for print.
+PlayerSpriteCount   .byte   ; Memory offset for printing sprites; 16 bit sprites -> 15 as the offset.
+PlayerSpriteMap     .byte   ; The bitmap level for the player.
+PlayerX             .byte   ; The player's X coordinate. Coordinates are given with the origin at the bottom left of the screen.
+PlayerY             .byte   ; The player's Y coordinate.
+PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 1.25x powerup, 2 = 2x powerup.
+
+NpcDirection        .byte   ; 0 for left, 8 for right (the value to set the reflection bit).
+PrintNpcSprite      .byte   ; 0 for don't print, anything else for print.
+NpcSpriteCount      .byte   ; Memory offset for printing sprites; 16 bit sprites -> 15 as the offset.
+NpcSpriteMap        .byte   ; The bitmap level for the Npc.
+NpcX                .byte   ; The Npc's X coordinate.
+NpcY                .byte   ; The Npc's Y coordinate.
+NpcPowerup          .byte   ; The Npc's powerup status.
+
+Sprite              ds 16   ; Array for the sprite data.
 
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
@@ -25,16 +43,29 @@ Initialize                  ; Defines the Initialize subroutine.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
     STA PlayerIt            ; Sets the player to it.
-    STA ComputerDirection   ; Sets the NPC facing left.
+    STA NpcDirection        ; Sets the Npc facing left.
+    STA PrintPlayerSprite   ;
+    STA PrintNpcSprite      ;
+    STA PlayerSpriteMap     ;
+    STA NpcSpriteMap        ;
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
+
+    LDY #15                 ; Load 15 into Y, the offset for the SpriteData.
+
+SpriteLoop
+    LDA SpriteData,Y        ; Load the sprite data at the offset into accumulator.
+    STA Sprite,Y            ; Save the sprite data into RAM at the offset amount.
+    DEY                     ; Decrease Y.
+    BPL SpriteLoop          ; Repeat loop until Y is negative.
+    
+    LDA #8
+    STA PlayerDirection     ; Sets the player direction to facing right.
 
     LDA #$9F                ; Loads background colour (light blue) into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
 
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
-    STA PlayerDirection     ; Sets the player direction to facing right.
     STA VBLANK              ; Sets the register bit value for VBLANK to ON.
-
 
 ; Fall into FrameStart from the Initialize subroutine.
 ; This subroutine controls setting the VSYNC and VBLANK and handles the
@@ -56,10 +87,63 @@ FrameStart
 
 ; Handles the 37 lines of vertical blank. 76 CPU clock cycles per VBLANK period.
 VBlankPeriod
-    LDX #37                 ; Store the value 37 into X to decrement down for each line of VBLANK.
+
+    STA GRP0                ; Reset player graphics register.
+    STA GRP1                ; Reset Npc graphics register.
+
+    LDX PlayerDirection     ; Load the player direction into X.
+    STX REFP0               ; Save player direction in reflection register.
+
+    LDX NpcDirection        ; Load the Npc direction into X.
+    STX REFP1               ; Save the Npc direction into the reflection register.
+                 
+    LDA #15                 ; Put 15 into accumulator in order to reset player sprite height counts.
+    STA PlayerSpriteCount   ; Reset sprite memory offset.
+    STA NpcSpriteCount      ; Reset sprite memory offset.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; TO THE MARKER ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; You can move these values around to move the player's Y positions to see that I got the beam racing correct in the sprite rendering.
+    ; Anything under the 54 will have Y position 54, and anything under the 171 will have Y position 171.
+    ; Just note these values are from the TOP of the sprite, which is 16 pixels high, so this value can never be below 15 (as bottom bitmap line is a blank).
+    LDX #54                 ; Sets X to the number of lines for the visible frame.
+    STX PlayerY             ; TODO Change this
+    STX NpcY                ; TODO change this
+    LDX #171
+
+    LDX #192
+
+    STA WSYNC               ; Wait for next scanline.
+
+SetPrintPlayerVblank        
+    CPX PlayerY             ; Compare player's Y position with the line number in X.
+    BNE SetPrintNpcVblank   ; If the top of the sprite is not inline with current line being printed, skip.
+    STX PrintPlayerSprite   ; Set print player sprite to true.
+    LDY PlayerSpriteCount   ; Get the player sprite count.
+    LDA Sprite,Y            ; Get the bitmap line.
+    STA PlayerSpriteMap     ; Save the line to print.
+    DEY                     ; Decrement the height count.
+    STY PlayerSpriteCount   ; Save the height count.
+
+SetPrintNpcVblank
+    STA WSYNC               ; Strobe.
+    CPX NpcY                ; Compare NPC's Y position with the line number in X.
+    BNE SkipSetNpcPrint     ; If player not at the top of the screen, skip.
+    STX PrintNpcSprite      ; Set print NPC sprite to true.
+    LDY NpcSpriteCount      ; Get the NPC sprite count.
+    LDA Sprite,Y            ; Get the bitmap line.
+    STA NpcSpriteMap        ; Save the line to print.
+    DEY                     ; Decrement the height counter.
+    STY NpcSpriteCount      ; Save the height count.
+
+SkipSetNpcPrint
+    STA WSYNC               ; Strobe.
+    LDX #34                 ; Store the value 37 into X to decrement down for each line of VBLANK.
                             ; Counting down is better because you save an instruction by being able
                             ; to use the zero bit in the processor status register instead of having
                             ; to do a CMP operation.
+                            ; Minus 3 for three WYSNCs in the code.
 
 VBlankLoop
     STA WSYNC               ; Strobe.
@@ -76,50 +160,74 @@ VBlankLoop
 ; Handles the 192 scanlines of visible frame, as well as the intervening
 ; horizontal blanks. 22 CPU cycles of HBLANK followed by 54 cycles of
 ; drawing to the screen
-VisibleFrame
-    LDX #192                ; Have X be the line counter for the 192 scanlines of visible frame.
-    LDY #15                 ; Y here is the memory address offset for the sprites. Sprites are 16 bits, but we want offset for 16th bit to be 15.
-                            ; It should be noted that sprites are upside down so that decrement can be used to save on a compare instruction.
+HBlankInitialize
+    LDX #192                ; Have X be the line counter for the 192 scanlines of visible frame. One less because of BMI operation.
+                            ; This offset of 1 is to compute the next line of sprites to print.
 
 ; Set registers for the TIA within 22 CPU cycles of HBLANK before it starts printing to the screen.
-HBlankPeriod
-    TYA
-    BMI PrintingPeriod
+HBlankLoop
 
-PrintComputer
-    LDA ComputerDirection   ; If 0, computer is facing left; if non-zero, computer is facing right.
-    BNE PrintComputerRight
+    LDA PlayerSpriteMap     ; Load the bitmap line to print for the player.
+    STA GRP0                ; Set the graphics register to print that line.
 
-PrintComputerLeft
-    LDA LeftFacingSprite,Y  ; Get the sprite bit pattern for the current line to print.
-    STA GRP1                ; Put that bit pattern into the computer player's register.
-    JMP PrintPlayer         ; Computer player registers set, so jump to doing the same for the player.
+    LDA NpcSpriteMap        ; Load the bitmap line to print the NPC.
+    STA GRP1                ; Set the graphics register to print that line.
 
-PrintComputerRight
-    LDA RightFacingSprite,Y ; Get the sprite bit pattern.
-    STA GRP1                ; Set bit pattern in register.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;; Player Sprite Printing
+StartSetPlayer
+    DEX                     ; Reduce X for the current comparisons against the Y values.
+    LDA PrintPlayerSprite   ; Load whether we are currently printing the player's sprite.
+    BNE SetPlayerMap        ; If we ARE printing the player, skip to that part. Otherwise, fall through.
 
-PrintPlayer
-    LDA #PlayerDirection    ; If 0, player is facing left; if non-zero, player is facing right.
-    BNE PrintPlayerRight    ; If not 0, then player is facing right, so go there.
+SetPrintPlayer        
+    CPX PlayerY             ; Compare player's Y position with the line number in X.
+    BNE StartSetNpc         ; If the top of the sprite is not inline with current line being printed, skip.
+    STX PrintPlayerSprite   ; Set print player sprite to true.
 
-PrintPlayerLeft
-    LDA LeftFacingSprite,Y  ; Get sprite bit pattern.
-    STA GRP0                ; Set bit pattern in player register.
-    JMP DecrementY          ; Done setting up TIA registers for next print cycle, so now go to the print cycle.
+SetPlayerMap
+    LDY PlayerSpriteCount   ; Load the player sprite's current memory offset.
+    LDA Sprite,Y            ; Load the sprite's bitmap line into the accumulator.
+    STA PlayerSpriteMap     ; Save the player's bitmap line to the player's sprite map variable.
+    DEY                     ; Decrement the offset for the sprite (as it is upside-down).
+    BMI PlayerFinished      ; If the offset is now negative, branch to turn off sprite printing.
+    STY PlayerSpriteCount   ; Store the new sprite offset.
+    JMP StartSetNpc         ; Jump to start setting up values for the NPC.
 
-PrintPlayerRight
-    LDA RightFacingSprite,Y ; Get sprite bit pattern.
-    STA GRP0                ; Set bit pattern in player register.
+PlayerFinished
+    INY                     ; Y right now is -1, so increment it to zero.
+    STY PrintPlayerSprite   ; Turn off player sprite printing.
 
-DecrementY
-    DEY
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; NPC Sprite Printing
+StartSetNpc
+    LDA PrintNpcSprite      ; Load whether we are currently printing the npc's sprite.
+    BNE SetNpcMap           ; If we ARE printing the npc, skip to that part. Otherwise, fall through.
+
+SetPrintNpc        
+    CPX NpcY                ; Compare player's Y position with the line number in X.
+    BNE SpriteSettingDone   ; If the top of the sprite is not inline with current line being printed, skip.
+    STX PrintNpcSprite      ; Set print player sprite to true.
+
+SetNpcMap
+    LDY NpcSpriteCount      ; Load the player sprite's current memory offset.
+    LDA Sprite,Y            ; Load the sprite's bitmap line into the accumulator.
+    STA NpcSpriteMap        ; Save the player's bitmap line to the player's sprite map variable.
+    DEY                     ; Decrement the offset for the sprite (as it is upside-down).
+    BMI NpcFinished         ; If the offset is now negative, branch to turn off sprite printing.
+    STY NpcSpriteCount      ; Store the new sprite offset.
+    JMP SpriteSettingDone   ; Jump to start setting up values for the NPC.
+
+NpcFinished
+    INY                     ; Y right now is -1, so increment it to zero.
+    STY PrintNpcSprite      ; Turn off player sprite printing.
+
+SpriteSettingDone
+    INX                     ; Increment X back up to it's actual current line number.
 
 ; Do logic operations within 54 CPU cycles while the TIA is printing the image to the screen.
 PrintingPeriod
     STA WSYNC               ; Strobe.
     DEX                     ; Decrement our line counter.
-    BNE HBlankPeriod        ; Wait for the printing period to be done, then start again.
+    BNE HBlankLoop          ; Wait for the printing period to be done, then start again.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; OVERSCAN
 
@@ -145,18 +253,18 @@ OverscanLoop
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SUBROUTINES
 
-; Subroutine to set the colours for who is it.
+; Subroutine to set the colours for who is it. Manipulates accumulator.
 SetItColours
     LDA PlayerIt            ; Load the PlayerIt value into the accumulator.
-    BNE ComputerRed         ; Go to ComputerRed if the value is non-zero.
+    BNE NpcRed              ; Go to NpcRed if the value is non-zero.
 
 PlayerRed
-    STA COLUP1              ; Accumulator is zero at this point; set NPC to black.
+    STA COLUP1              ; Accumulator is zero at this point; set Npc to black.
     LDA #$32                ; Load red into accumulator.
     STA COLUP0              ; Set player colour register to red.
     RTS                     ; Return.
 
-ComputerRed
+NpcRed
     LDA #$32                ; Load red into accumulator.
     STA COLUP1              ; Set NCP to red.
     LDA #0                  ; Load black into accumulator.
@@ -166,7 +274,7 @@ ComputerRed
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
 ; Defines the bitmap for a left-facing sprite.
-LeftFacingSprite
+SpriteData
     .byte #%00000000
     .byte #%11101110
     .byte #%00100010
@@ -183,25 +291,6 @@ LeftFacingSprite
     .byte #%00100010
     .byte #%00100010
     .byte #%00011100
-
-; Defines the bitmap for a right-facing sprite.
-RightFacingSprite
-    .byte #%00000000
-    .byte #%01110111
-    .byte #%01000100
-    .byte #%01000100
-    .byte #%01000100
-    .byte #%00101100
-    .byte #%00010000
-    .byte #%00010000
-    .byte #%01111100
-    .byte #%10010010
-    .byte #%10010001
-    .byte #%10010001
-    .byte #%00111000
-    .byte #%01000100
-    .byte #%01000100
-    .byte #%00111000
 
 ; Sets the ROM's capacity to exactly 4K, i.e. $F000 through $FFFF, and tells it where to start execution.
     org $FFFC               ; Set origin as $FFFC, the reset pointer, to tell where to begin execution.
