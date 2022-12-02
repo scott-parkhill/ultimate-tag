@@ -31,7 +31,7 @@ NpcX                .byte   ; The Npc's X coordinate.
 NpcY                .byte   ; The Npc's Y coordinate.
 NpcPowerup          .byte   ; The Npc's powerup status.
 
-Sprite              ds 16   ; Array for the sprite data.
+Sprite              ds 16   ; Array for the sprite data. This is needed in order to save on clock cycles by having the sprite zero-page indexed.
 
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
@@ -52,6 +52,10 @@ Initialize                  ; Defines the Initialize subroutine.
 
     LDY #15                 ; Load 15 into Y, the offset for the SpriteData.
 
+; Loads the sprite into RAM. This is done in order to properly "race the beam" in the HBlankLoop.
+; Loading the sprite data during the printing period resulted in too many clock cycles used when
+; both the player and NPC shared any horizontal spaces (i.e. were printed on the same scanline ever).
+; Having it zero-page indexed saves on load clock cycles which makes me race the beam just in time.
 SpriteLoop
     LDA SpriteData,Y        ; Load the sprite data at the offset into accumulator.
     STA Sprite,Y            ; Save the sprite data into RAM at the offset amount.
