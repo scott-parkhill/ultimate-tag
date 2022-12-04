@@ -11,7 +11,7 @@
     seg.u Variables         ; Defines uninitialized segment named Variables.
     org $80                 ; Set origin of segment at beginning of RAM.
 
-PlayerIt            .byte   ; 0 for it, not zero for not it.
+PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
 PowerupTimer        .byte   ; 1 for timer set, 0 for not.
 PowerupCooldown     .byte   ; 1 for timer set, 0 for not.
 
@@ -33,21 +33,26 @@ NpcPowerup          .byte   ; The Npc's powerup status.
 
 Sprite              ds 16   ; Array for the sprite data. This is needed in order to save on clock cycles by having the sprite zero-page indexed.
 
+; This logic is a bit weird but done so that branching is on positive. Basically, -1 to 8 = 10, etc.
+HalfSecondCounter   .byte   ; Initializes to 29 and re-initializes to 28, as there are 60 frames a second. When zero, half a second has passed.
+SecondCounter       .byte   ; Initializes to 59 and re-initializes to 58, as there are 60 frames a second. When zero, a second has passed.
+TenSecondCounter    .byte   ; Initializes to 9 and re-initializes to 8. 1 is deducted each second. When zero, 10 seconds have passed.
+
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
     org $F000               ; Set origin of segment at beginning of cartridge ROM.
 
-; Creates a subroutine for all initialization details.
-Initialize                  ; Defines the Initialize subroutine.
+; Creates a section for all initialization details.
+Initialize                  ; Defines the Initialize section.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
     STA PlayerIt            ; Sets the player to it.
     STA NpcDirection        ; Sets the Npc facing left.
-    STA PrintPlayerSprite   ;
-    STA PrintNpcSprite      ;
-    STA PlayerSpriteMap     ;
-    STA NpcSpriteMap        ;
+    STA PrintPlayerSprite   ; Set to don't print.
+    STA PrintNpcSprite      ; Set to don't print.
+    STA PlayerSpriteMap     ; Set to zeros.
+    STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
     LDY #15                 ; Load 15 into Y, the offset for the SpriteData.
@@ -71,8 +76,8 @@ SpriteLoop
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
     STA VBLANK              ; Sets the register bit value for VBLANK to ON.
 
-; Fall into FrameStart from the Initialize subroutine.
-; This subroutine controls setting the VSYNC and VBLANK and handles the
+; Fall into FrameStart from the Initialize section.
+; This section controls setting the VSYNC and VBLANK and handles the
 ; three mandatory scanlines required for VSYNC. 
 FrameStart
     LDA #2                  ; Sets accumulator to 2 in order to set the VSYNC bit.
@@ -92,7 +97,7 @@ FrameStart
 ; Handles the 37 lines of vertical blank. 76 CPU clock cycles per VBLANK period.
 VBlankPeriod
 
-    STA GRP0                ; Reset player graphics register.
+    STA GRP0                ; Reset player graphics register. Accumulator is zero here.
     STA GRP1                ; Reset Npc graphics register.
 
     LDX PlayerDirection     ; Load the player direction into X.
@@ -105,21 +110,18 @@ VBlankPeriod
     STA PlayerSpriteCount   ; Reset sprite memory offset.
     STA NpcSpriteCount      ; Reset sprite memory offset.
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;; TO THE MARKER ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ; You can move these values around to move the player's Y positions to see that I got the beam racing correct in the sprite rendering.
-    ; Anything under the 54 will have Y position 54, and anything under the 171 will have Y position 171.
-    ; Just note these values are from the TOP of the sprite, which is 16 pixels high, so this value can never be below 15 (as bottom bitmap line is a blank).
-    LDX #54                 ; Sets X to the number of lines for the visible frame.
-    STX PlayerY             ; TODO Change this
-    STX NpcY                ; TODO change this
-    LDX #171
 
-    LDX #192
+    LDX #104                ; Sets X so the sprites sits halfway up the screen.
+    STX PlayerY             ; Set player to be halfway up the screen.
+    STX NpcY                ; Set NPC to be halfway up the screen.
+
+    LDX #192                ; Sets X to the number of lines for the visible frame.
 
     STA WSYNC               ; Wait for next scanline.
 
+; These two sections (SetPrintPlayerVblank and SetPrintNpcVblank) are so that if the sprites are at the top of the screen,
+; their bitmap line value is read into the graphics register now. Otherwise, their heads would be cut off on the very top line
+; because of the way that the graphics registers are set in the visible frame part (as done during the HBLANK period).
 SetPrintPlayerVblank        
     CPX PlayerY             ; Compare player's Y position with the line number in X.
     BNE SetPrintNpcVblank   ; If the top of the sprite is not inline with current line being printed, skip.
@@ -143,12 +145,14 @@ SetPrintNpcVblank
 
 SkipSetNpcPrint
     STA WSYNC               ; Strobe.
+
     LDX #34                 ; Store the value 37 into X to decrement down for each line of VBLANK.
                             ; Counting down is better because you save an instruction by being able
                             ; to use the zero bit in the processor status register instead of having
                             ; to do a CMP operation.
                             ; Minus 3 for three WYSNCs in the code.
 
+; With all logic complete, loop until the visible frame portion of the code.
 VBlankLoop
     STA WSYNC               ; Strobe.
     DEX                     ; Decrement the X register containing our line counter.
@@ -240,11 +244,13 @@ OverscanPeriod
     LDA #2                  ; Put 2 into accumulator again in order to switch on VBLANK.
     STA VBLANK              ; Turn on register indicating vertical blank.
 
-    ; TODO Collision logic goes here.
-    STA WSYNC
-
+    JSR PlayerCollisions    ; Check the player collisions and alter who is it as needed.
+    STA CXCLR               ; Clear collision latches.
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
-    STA WSYNC
+    STA WSYNC               ; Strobe.
+
+    JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
+    STA WSYNC               ; Strobe.
 
     LDX #28                 ; Make X the line counter for the 30 lines of overscan (minus the two already used).
 
@@ -275,9 +281,55 @@ NpcRed
     STA COLUP0              ; Set player to black.
     RTS                     ; Return.
 
+
+; Subroutine to update the time counters.
+UpdateTimeCounters
+    DEC HalfSecondCounter   ; Decrement the half second counter.
+    BPL UpdateSecondCounter ; Branch to updating the seconds counter if half second counter is not zero.
+
+ResetHalfSecondCounter
+    LDA #28                 ; Load 30 into accumulator.
+    STA HalfSecondCounter   ; Save 30 into the half second counter.
+
+UpdateSecondCounter
+    DEC SecondCounter       ; Decrement the seconds counter.
+    BPL ExitUpdateCounters  ; If a second hasn't passed yet, exit the subroutine.
+
+ResetSecondCounter
+    LDA #58                 ; Load 60 into accumulator.
+    STA SecondCounter       ; Save 60 into the second counter.
+    DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
+    BPL ExitUpdateCounters  ; Exit the subroutine if the ten secound counter is not yet zero.
+
+ResetTenSecondCounter
+    LDA #8                  ; Load 10 into the accumulator.
+    STA TenSecondCounter    ; Save 10 into the ten second counter.
+
+ExitUpdateCounters
+    RTS                     ; Return from the subroutine.
+
+
+; Subroutine to change who is it based on NPC and player collisions.
+; Note that PlayerIt will be 0000 0000 when the player is It, and 1111 1111 otherwise.
+PlayerCollisions
+    BIT CXPPMM              ; The bit operation sets the N flag from the initial, un-ANDed value of memory bit 7, which represents player-player collisions.
+    BPL ExitPlayerCollisions; If no collision occured, exit.
+    LDA #%11111111          ; Loads 1111 1111 into the accumulator.
+    EOR PlayerIt            ; Flips the bits in the PlayerIt variable.
+    STA PlayerIt            ; Store the value.
+
+ExitPlayerCollisions
+    RTS
+
+
+; Subroutine to get joystick input and appropriately adjust player position.
+SetPlayerPosition
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
-; Defines the bitmap for a left-facing sprite.
+; Defines the bitmap for a left-facing sprite. 
+; The sprite is stored upside-down so height can be decremented to zero.
 SpriteData
     .byte #%00000000
     .byte #%11101110
