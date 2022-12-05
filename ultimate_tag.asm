@@ -47,6 +47,7 @@ Initialize                  ; Defines the Initialize section.
     CLEAN_START             ; Calls the CLEAN_START macro from macro.h.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
+    STA SWACNT              ; Set joystick register for reading.
     STA PlayerIt            ; Sets the player to it.
     STA NpcDirection        ; Sets the Npc facing left.
     STA PrintPlayerSprite   ; Set to don't print.
@@ -54,6 +55,10 @@ Initialize                  ; Defines the Initialize section.
     STA PlayerSpriteMap     ; Set to zeros.
     STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
+
+    LDX #104                ; Sets X so the sprites sits halfway up the screen.
+    STX PlayerY             ; Set player to be halfway up the screen.
+    STX NpcY                ; Set NPC to be halfway up the screen.
 
     LDY #15                 ; Load 15 into Y, the offset for the SpriteData.
 
@@ -109,11 +114,6 @@ VBlankPeriod
     LDA #15                 ; Put 15 into accumulator in order to reset player sprite height counts.
     STA PlayerSpriteCount   ; Reset sprite memory offset.
     STA NpcSpriteCount      ; Reset sprite memory offset.
-
-
-    LDX #104                ; Sets X so the sprites sits halfway up the screen.
-    STX PlayerY             ; Set player to be halfway up the screen.
-    STX NpcY                ; Set NPC to be halfway up the screen.
 
     LDX #192                ; Sets X to the number of lines for the visible frame.
 
@@ -224,6 +224,7 @@ SetNpcMap
     STY NpcSpriteCount      ; Store the new sprite offset.
     JMP SpriteSettingDone   ; Jump to start setting up values for the NPC.
 
+; TODO
 NpcFinished
     INY                     ; Y right now is -1, so increment it to zero.
     STY PrintNpcSprite      ; Turn off player sprite printing.
@@ -246,13 +247,18 @@ OverscanPeriod
 
     JSR PlayerCollisions    ; Check the player collisions and alter who is it as needed.
     STA CXCLR               ; Clear collision latches.
+    STA WSYNC               ; Strobe.
+
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
+    STA WSYNC               ; Strobe.
+
+    JSR SetPlayerPosition   ; Call subroutine to change the player's position based on joystick inputs.
     STA WSYNC               ; Strobe.
 
     JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
     STA WSYNC               ; Strobe.
 
-    LDX #28                 ; Make X the line counter for the 30 lines of overscan (minus the two already used).
+    LDX #26                 ; Make X the line counter for the 30 lines of overscan (minus the four already used).
 
 OverscanLoop
     STA WSYNC               ; Strobe.
@@ -324,7 +330,36 @@ ExitPlayerCollisions
 
 ; Subroutine to get joystick input and appropriately adjust player position.
 SetPlayerPosition
+    ; This subroutine is a bit hacky to save on instructions. The joystick is read as follows:
+    ; Bit 4 = up, bit 5 = down, bit 6 = left, bit 7 = right. Note that a bit being UNSET means movement occured.
+    ; This means for left and right we can do bit comparisons since the N and V flags are set from the memory value.
+    ; Therefore if bit 6 is set (flag V), the player has NOT moved left. If bit 7 is set (flag N), the player has NOT moved right.
 
+CheckPlayerLeft
+    BIT SWCHA               ; Bit compare with accumulator. This is just to capture the overflow flag as described above.
+    BVS CheckPlayerRight    ; If the overflow flag is set, skip to checking movement right as described above.
+    DEC PlayerX             ; Otherwise, the player has moved left so decrement X.
+    ; TODO add in logic to check boundaries??
+
+CheckPlayerRight
+    BIT SWCHA               ; Bit compare with accumulator. This is just to capture the negative flag as described above.
+    BMI CheckPlayerUp       ; If the bit is set, skip to checking up.
+    INC PlayerX             ; Otherwise, the player has moved right so increment X.
+
+CheckPlayerUp
+    LDA #%00010000          ; Loads mask into accumulator.
+    BIT SWCHA               ; Compare with accumulator.
+    BNE CheckPlayerDown     ; If up hasn't been pressed, skip to down.
+    INC PlayerY             ; Otherwise, increment player's Y value.
+
+CheckPlayerDown
+    ASL                     ; Shift the bit over in the accumulator so that the mask is 0010 0000.
+    BIT SWCHA               ; Bit compare with accumulator.
+    BNE ExitPlayerPosition  ; If down hasn't been pressed, exit the subroutine.
+    DEC PlayerY             ; Otherwise, player has moved down so decrement Y value.
+
+ExitPlayerPosition
+    RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
