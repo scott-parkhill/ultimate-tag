@@ -64,9 +64,15 @@ Initialize                  ; Defines the Initialize section.
     STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
-    LDX #96                ; Sets X so the sprites sits halfway up the screen.
+    LDX #96                 ; Sets X so the sprites sits halfway up the screen.
     STX PlayerY             ; Set player to be halfway up the screen.
     STX NpcY                ; Set NPC to be halfway up the screen.
+
+    LDX #10                 ; Loads X with 10, the starting x coordinate for the player.
+    STX PlayerX             ; Saves the X value into PlayerX.
+
+    LDX #150                ; Loads X with 150, the starting x coordinate for the NPC.
+    STX NpcX                ; Saves the X value into NpcX.
 
     LDY #16                 ; Load 16 into Y, to store the sprite height.
     STY SpriteHeight        ; Saves the value 16 into the SpriteHeight variable.
@@ -279,7 +285,7 @@ UpdateTimeCounters
     DEC HalfSecondCounter   ; Decrement the half second counter.
     BPL UpdateSecondCounter ; Branch to updating the seconds counter if half second counter is not zero.
 
-ResetHalfSecondCounter
+; Resets the half second counter.
     LDA #28                 ; Load 30 into accumulator.
     STA HalfSecondCounter   ; Save 30 into the half second counter.
 
@@ -287,13 +293,13 @@ UpdateSecondCounter
     DEC SecondCounter       ; Decrement the seconds counter.
     BPL ExitUpdateCounters  ; If a second hasn't passed yet, exit the subroutine.
 
-ResetSecondCounter
+; Resets the second counter and decrements tens counter.
     LDA #58                 ; Load 60 into accumulator.
     STA SecondCounter       ; Save 60 into the second counter.
     DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
     BPL ExitUpdateCounters  ; Exit the subroutine if the ten secound counter is not yet zero.
 
-ResetTenSecondCounter
+; Resets the tens counter.
     LDA #8                  ; Load 10 into the accumulator.
     STA TenSecondCounter    ; Save 10 into the ten second counter.
 
