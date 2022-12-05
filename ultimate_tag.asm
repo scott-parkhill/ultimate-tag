@@ -70,13 +70,12 @@ Initialize                  ; Defines the Initialize section.
 
     LDY #16                 ; Load 16 into Y, to store the sprite height.
     STY SpriteHeight        ; Saves the value 16 into the SpriteHeight variable.
-    DEY                     ; Decrement Y to get the sprite offset.
-; TODO Probably remove this DEY with new sprite printing mechanism.
 
 ; Loads the sprite into RAM. This is done in order to properly "race the beam" in the HBlankLoop.
 ; Loading the sprite data during the printing period resulted in too many clock cycles used when
 ; both the player and NPC shared any horizontal spaces (i.e. were printed on the same scanline ever).
 ; Having it zero-page indexed saves on load clock cycles which makes me race the beam just in time.
+    LDY #15                 ; Load 15, the sprite offset, into Y.
 SpriteLoop
     LDA SpriteData,Y        ; Load the sprite data at the offset into accumulator.
     STA Sprite,Y            ; Save the sprite data into RAM at the offset amount.
@@ -326,12 +325,16 @@ CheckPlayerLeft
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the overflow flag as described above.
     BVS CheckPlayerRight    ; If the overflow flag is set, skip to checking movement right as described above.
     DEC PlayerX             ; Otherwise, the player has moved left so decrement X.
+    LDA #0                  ; Load 0 into accumulator for "left".
+    STA PlayerDirection     ; Save into player direction.
     ; TODO add in logic to check boundaries??
 
 CheckPlayerRight
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the negative flag as described above.
     BMI CheckPlayerUp       ; If the bit is set, skip to checking up.
     INC PlayerX             ; Otherwise, the player has moved right so increment X.
+    LDA #8                  ; Load 8 into accumulator for "right".
+    STA PlayerDirection     ; Save into player direction.
 
 CheckPlayerUp
     LDA #%00010000          ; Loads mask into accumulator.
