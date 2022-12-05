@@ -11,6 +11,7 @@
     seg.u Variables         ; Defines uninitialized segment named Variables.
     org $80                 ; Set origin of segment at beginning of RAM.
 
+; Variables for who is it and the height in pixels of the player sprite.
 PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
 SpriteHeight        .byte   ; Saves the sprite's height.
 
@@ -23,8 +24,8 @@ NpcY                .byte   ; The Npc's Y coordinate.
 ; Powerups.
 PowerupTimer        .byte   ; 1 for timer set, 0 for not.
 PowerupCooldown     .byte   ; 1 for timer set, 0 for not.
-PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 1.25x powerup, 2 = 2x powerup.
-NpcPowerup          .byte   ; The Npc's powerup status.
+PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 2x powerup.
+NpcPowerup          .byte   ; The Npc's powerup status. 0 = no powerup, 1 = 2x powerup.
 
 ; Player sprite information.
 PlayerDirection     .byte   ; 0 for left, 8 for right (the value to set the reflection bit).
@@ -56,13 +57,15 @@ Initialize                  ; Defines the Initialize section.
 
     ; Accumulator starts at 0 from the CLEAN_START macro.
     STA SWACNT              ; Set joystick register for reading.
-    STA PlayerIt            ; Sets the player to it.
     STA NpcDirection        ; Sets the Npc facing left.
     STA PrintPlayerSprite   ; Set to don't print.
     STA PrintNpcSprite      ; Set to don't print.
     STA PlayerSpriteMap     ; Set to zeros.
     STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
+
+    LDA #%11111111          ; Load the "npc it" value into the accumulator.
+    STA PlayerIt            ; Initialize the NPC to "it".
 
     LDX #96                 ; Sets X so the sprites sits halfway up the screen.
     STX PlayerY             ; Set player to be halfway up the screen.
@@ -250,6 +253,7 @@ OverscanPeriod
 
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
     JSR SetPlayerPosition   ; Call subroutine to change the player's position based on joystick inputs.
+    JSR ExecuteNpcAi        ; Run the NPC's AI.
     JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
 
 OverscanWaitForTimer
@@ -385,6 +389,42 @@ SetHorizontalPosition subroutine
     STA RESP0,X             ; Reset the sprite to the given coarse position.
 
     RTS                     ; Return from subroutine.
+
+; The subroutine that does all the calculations for NPC logic.
+ExecuteNpcAi subroutine
+; TODO Handle all the logic for the boundaries.
+.CheckHorizontalMovement
+    LDA PlayerX             ; Load the player x-coordinate into A.
+    SEC                     ; Set the carry bit for subtraction.
+    SBC NpcX                ; Subtract X from the accumulator.
+    BPL .NpcMoveRight        ; Branch to right movement if positive or zero.
+                            ; Otherwise, handle running left.
+
+.HandleRunLeft
+    LDA PlayerIt            ; Load player it.
+    BEQ .NpcMoveRight       ; If the NPC is to run left but is it, then run right.
+    JMP .NpcMoveLeft        ; Otherwise, run left as intended.
+
+.HandleRunRight
+    LDA PlayerIt            ; Load player it into accumulator.
+    BEQ .NpcMoveLeft        ; If the NPC is to run right but is it, then run left.
+                            ; Otherwise, run right.
+
+.NpcMoveRight
+    INC NpcX                ; Run right.
+    LDA NpcPowerup          ; Load powerup data.
+    BEQ .CheckVerticalMovement  ; Continue if no powerup.
+    INC NpcX                ; Otherwise, double movement.
+
+.NpcMoveLeft
+    DEC NpcX                ; Run left.
+    LDA NpcPowerup          ; Load powerup data.
+    BEQ .CheckVerticalMovement  ; If no powerup, continue.
+    DEC NpcX                ; Otherwise, double movement.
+
+.CheckVerticalMovement
+    RTS
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
