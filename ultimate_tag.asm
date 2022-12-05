@@ -12,25 +12,32 @@
     org $80                 ; Set origin of segment at beginning of RAM.
 
 PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
+
+; Player and NPC coordinates.
+PlayerX             .byte   ; The player's X coordinate. Coordinates are given with the origin at the bottom left of the screen.
+PlayerY             .byte   ; The player's Y coordinate.
+NpcX                .byte   ; The Npc's X coordinate.
+NpcY                .byte   ; The Npc's Y coordinate.
+
+; Powerups.
 PowerupTimer        .byte   ; 1 for timer set, 0 for not.
 PowerupCooldown     .byte   ; 1 for timer set, 0 for not.
+PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 1.25x powerup, 2 = 2x powerup.
+NpcPowerup          .byte   ; The Npc's powerup status.
 
+; Player sprite information.
 PlayerDirection     .byte   ; 0 for left, 8 for right (the value to set the reflection bit).
 PrintPlayerSprite   .byte   ; 0 for don't print, anything else for print.
 PlayerSpriteCount   .byte   ; Memory offset for printing sprites; 16 bit sprites -> 15 as the offset.
 PlayerSpriteMap     .byte   ; The bitmap level for the player.
-PlayerX             .byte   ; The player's X coordinate. Coordinates are given with the origin at the bottom left of the screen.
-PlayerY             .byte   ; The player's Y coordinate.
-PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 1.25x powerup, 2 = 2x powerup.
 
+; NPC sprite information.
 NpcDirection        .byte   ; 0 for left, 8 for right (the value to set the reflection bit).
 PrintNpcSprite      .byte   ; 0 for don't print, anything else for print.
 NpcSpriteCount      .byte   ; Memory offset for printing sprites; 16 bit sprites -> 15 as the offset.
 NpcSpriteMap        .byte   ; The bitmap level for the Npc.
-NpcX                .byte   ; The Npc's X coordinate.
-NpcY                .byte   ; The Npc's Y coordinate.
-NpcPowerup          .byte   ; The Npc's powerup status.
 
+; Array to store the sprite data into memory.
 Sprite              ds 16   ; Array for the sprite data. This is needed in order to save on clock cycles by having the sprite zero-page indexed.
 
 ; This logic is a bit weird but done so that branching is on positive. Basically, -1 to 8 = 10, etc.
