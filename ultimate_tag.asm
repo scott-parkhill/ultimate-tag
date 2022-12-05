@@ -71,7 +71,8 @@ Initialize                  ; Defines the Initialize section.
     LDX #10                 ; Loads X with 10, the starting x coordinate for the player.
     STX PlayerX             ; Saves the X value into PlayerX.
 
-    LDX #150                ; Loads X with 150, the starting x coordinate for the NPC.
+; 149 is right edge of the screen.
+    LDX #139                ; Loads X with 139, the starting x coordinate for the NPC.
     STX NpcX                ; Saves the X value into NpcX.
 
     LDY #16                 ; Load 16 into Y, to store the sprite height.
@@ -117,6 +118,9 @@ FrameStart
 
 ; Handles the 37 lines of vertical blank. 76 CPU clock cycles per VBLANK period.
 VBlankPeriod
+    LDA #38                 ; Value used to skip a bunch of scanlines using the formula FLOOR((N*76+13)/64). Want to skip 34 scanlines here.
+    STA WSYNC               ; Guarantee start of scanline.
+    STA TIM64T              ; Set the timer to skip 35 scanlines.
 
     STA GRP0                ; Reset player graphics register. Accumulator is zero here.
     STA GRP1                ; Reset Npc graphics register.
@@ -131,10 +135,15 @@ VBlankPeriod
     STA PlayerSpriteCount   ; Reset sprite memory offset.
     STA NpcSpriteCount      ; Reset sprite memory offset.
 
+    LDX #0                  ; Load player into X.
+    LDA PlayerX             ; Load player X coordinate into accumulator.
+    JSR SetHorizontalPosition   ; Set the horizontal position of the player.
+
+    LDX #1                  ; Lead the NPC into X.
+    LDA NpcX                ; Load the NPC X coordinate into accumulator.
+    JSR SetHorizontalPosition   ; Set the horizontal position of the NPC.
+
     LDX #192                ; Sets X to the number of lines for the visible frame.
-
-    STA WSYNC               ; Wait for next scanline.
-
 VblankSetPlayerMap
     TXA                     ; Transfer X, the current line, to accumulator.
     SEC                     ; Set the carry bit in order to do subtraction. Subtraction expects the carry bit to be set.
@@ -161,22 +170,17 @@ VblankSaveNpcSprite
     LDA Sprite,Y            ; Load the sprite bitmap line value into the accumulator using the offset that was computed.
     STA NpcSpriteMap        ; Save this bitmap line to be printed at the beginning of the HBLANK.
 
+VblankWaitForTimer
+    LDA INTIM               ; Load the timer value.
+    BNE VblankWaitForTimer  ; Wait until the timer is set to zero.
+
 ; Finish setting up the sprites for the first HBLANK, so strobe WSYNC then loop.
     STA WSYNC               ; Strobe.
-
-    LDX #35                 ; Store the value 37 into X to decrement down for each line of VBLANK.
-                            ; Counting down is better because you save an instruction by being able
-                            ; to use the zero bit in the processor status register instead of having
-                            ; to do a CMP operation.
-                            ; Minus 2 WYSNCs in the code.
-
-; With all logic complete, loop until the visible frame portion of the code.
-VBlankLoop
-    STA WSYNC               ; Strobe.
-    DEX                     ; Decrement the X register containing our line counter.
-    BNE VBlankLoop          ; Loop until VBLANK is complete (i.e. until X == 0).
-
+    STA HMOVE               ; Apply the fine horizontal offsets.
+    
     ; Turn off VBLANK.
+    LDX #0
+    STA WSYNC
     STX VBLANK              ; Stores X into VBLANK since we know X is zero at this point in the code.
 
     ; Now fall into the portion with HBLANKS and visible output to TV.
@@ -234,45 +238,41 @@ PrintingPeriod
 
 ; Handles the 30 lines of overscan, 76 clock cycles each.
 OverscanPeriod
+    LDA #33                 ; Timer number. FLOOR((N*76+13)/64). Want to skip 28 WSYNCs.
+    STA WSYNC               ; Strobe.
+    STA TIM64T              ; Set timer.
+
     LDA #2                  ; Put 2 into accumulator again in order to switch on VBLANK.
     STA VBLANK              ; Turn on register indicating vertical blank.
 
     JSR PlayerCollisions    ; Check the player collisions and alter who is it as needed.
     STA CXCLR               ; Clear collision latches.
-    STA WSYNC               ; Strobe.
 
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
-    STA WSYNC               ; Strobe.
-
     JSR SetPlayerPosition   ; Call subroutine to change the player's position based on joystick inputs.
-    STA WSYNC               ; Strobe.
-
     JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
-    STA WSYNC               ; Strobe.
 
-    LDX #26                 ; Make X the line counter for the 30 lines of overscan (minus the four already used).
-
-OverscanLoop
-    STA WSYNC               ; Strobe.
-    DEX                     ; Decrement the line counter.
-    BNE OverscanLoop        ; Repeat until X = 0.
+OverscanWaitForTimer
+    LDA INTIM               ; Load timer value into accumulator.
+    BNE OverscanWaitForTimer; Loop while time remains.
+    STA WSYNC               ; End overscan period.
 
     JMP FrameStart          ; When the overscan period is complete, start the next frame.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SUBROUTINES
 
 ; Subroutine to set the colours for who is it. Manipulates accumulator.
-SetItColours
+SetItColours subroutine
     LDA PlayerIt            ; Load the PlayerIt value into the accumulator.
-    BNE NpcRed              ; Go to NpcRed if the value is non-zero.
+    BNE .NpcRed              ; Go to NpcRed if the value is non-zero.
 
-PlayerRed
+.PlayerRed
     STA COLUP1              ; Accumulator is zero at this point; set Npc to black.
     LDA #$32                ; Load red into accumulator.
     STA COLUP0              ; Set player colour register to red.
     RTS                     ; Return.
 
-NpcRed
+.NpcRed
     LDA #$32                ; Load red into accumulator.
     STA COLUP1              ; Set NCP to red.
     LDA #0                  ; Load black into accumulator.
@@ -281,81 +281,110 @@ NpcRed
 
 
 ; Subroutine to update the time counters.
-UpdateTimeCounters
+UpdateTimeCounters subroutine
     DEC HalfSecondCounter   ; Decrement the half second counter.
-    BPL UpdateSecondCounter ; Branch to updating the seconds counter if half second counter is not zero.
+    BPL .UpdateSecondCounter ; Branch to updating the seconds counter if half second counter is not zero.
 
 ; Resets the half second counter.
     LDA #28                 ; Load 30 into accumulator.
     STA HalfSecondCounter   ; Save 30 into the half second counter.
 
-UpdateSecondCounter
+.UpdateSecondCounter
     DEC SecondCounter       ; Decrement the seconds counter.
-    BPL ExitUpdateCounters  ; If a second hasn't passed yet, exit the subroutine.
+    BPL .ExitUpdateCounters  ; If a second hasn't passed yet, exit the subroutine.
 
 ; Resets the second counter and decrements tens counter.
     LDA #58                 ; Load 60 into accumulator.
     STA SecondCounter       ; Save 60 into the second counter.
     DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
-    BPL ExitUpdateCounters  ; Exit the subroutine if the ten secound counter is not yet zero.
+    BPL .ExitUpdateCounters  ; Exit the subroutine if the ten secound counter is not yet zero.
 
 ; Resets the tens counter.
     LDA #8                  ; Load 10 into the accumulator.
     STA TenSecondCounter    ; Save 10 into the ten second counter.
 
-ExitUpdateCounters
+.ExitUpdateCounters
     RTS                     ; Return from the subroutine.
 
 
 ; Subroutine to change who is it based on NPC and player collisions.
 ; Note that PlayerIt will be 0000 0000 when the player is It, and 1111 1111 otherwise.
-PlayerCollisions
+PlayerCollisions subroutine
     BIT CXPPMM              ; The bit operation sets the N flag from the initial, un-ANDed value of memory bit 7, which represents player-player collisions.
-    BPL ExitPlayerCollisions; If no collision occured, exit.
+    BPL .ExitPlayerCollisions; If no collision occured, exit.
     LDA #%11111111          ; Loads 1111 1111 into the accumulator.
     EOR PlayerIt            ; Flips the bits in the PlayerIt variable.
     STA PlayerIt            ; Store the value.
 
-ExitPlayerCollisions
+.ExitPlayerCollisions
     RTS
 
 
 ; Subroutine to get joystick input and appropriately adjust player position.
-SetPlayerPosition
+SetPlayerPosition subroutine
     ; This subroutine is a bit hacky to save on instructions. The joystick is read as follows:
     ; Bit 4 = up, bit 5 = down, bit 6 = left, bit 7 = right. Note that a bit being UNSET means movement occured.
     ; This means for left and right we can do bit comparisons since the N and V flags are set from the memory value.
     ; Therefore if bit 6 is set (flag V), the player has NOT moved left. If bit 7 is set (flag N), the player has NOT moved right.
 
-CheckPlayerLeft
+.CheckPlayerLeft
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the overflow flag as described above.
-    BVS CheckPlayerRight    ; If the overflow flag is set, skip to checking movement right as described above.
+    BVS .CheckPlayerRight    ; If the overflow flag is set, skip to checking movement right as described above.
     DEC PlayerX             ; Otherwise, the player has moved left so decrement X.
     LDA #0                  ; Load 0 into accumulator for "left".
     STA PlayerDirection     ; Save into player direction.
     ; TODO add in logic to check boundaries??
 
-CheckPlayerRight
+.CheckPlayerRight
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the negative flag as described above.
-    BMI CheckPlayerUp       ; If the bit is set, skip to checking up.
+    BMI .CheckPlayerUp       ; If the bit is set, skip to checking up.
     INC PlayerX             ; Otherwise, the player has moved right so increment X.
     LDA #8                  ; Load 8 into accumulator for "right".
     STA PlayerDirection     ; Save into player direction.
 
-CheckPlayerUp
+.CheckPlayerUp
     LDA #%00010000          ; Loads mask into accumulator.
     BIT SWCHA               ; Compare with accumulator.
-    BNE CheckPlayerDown     ; If up hasn't been pressed, skip to down.
+    BNE .CheckPlayerDown     ; If up hasn't been pressed, skip to down.
     INC PlayerY             ; Otherwise, increment player's Y value.
 
-CheckPlayerDown
+.CheckPlayerDown
     ASL                     ; Shift the bit over in the accumulator so that the mask is 0010 0000.
     BIT SWCHA               ; Bit compare with accumulator.
-    BNE ExitPlayerPosition  ; If down hasn't been pressed, exit the subroutine.
+    BNE .ExitPlayerPosition  ; If down hasn't been pressed, exit the subroutine.
     DEC PlayerY             ; Otherwise, player has moved down so decrement Y value.
 
-ExitPlayerPosition
+.ExitPlayerPosition
     RTS
+
+
+; This subroutine sets the horizontal position of a given sprite. This should be called in the VBLANK section.
+; Offsets are based on the register positions defined in vcs.h.
+;
+; A = 0: player 0
+; A = 1: player 1
+; A = 2: missile 0
+; A = 3: missile 1
+; A = 4: ball
+;
+; Set the horizontal coordinate of the sprite in the X register. Set the offset for saving into accumulator.
+SetHorizontalPosition subroutine
+    STA WSYNC               ; Wait for start of the new scanline so proper positioning information can be set.
+    SEC                     ; Set the carry flag in order to do subtraction.
+
+.DivideLoop
+    SBC #15                 ; Subtract 15.
+    BCS .DivideLoop         ; Branch until negative.
+
+    EOR #7                  ; Calculate the sprite's fine offset. This is because a normal loop would only be able to set it in increments of 5, so it would be blocky.
+    ASL                     ; Arithmetic shift left.
+    ASL                     ; Arithmetic shift left.
+    ASL                     ; Arithmetic shift left.
+    ASL                     ; Shift to get the fine offset.
+    STA HMP0,X              ; Set the fine offset for the sprite.
+    STA RESP0,X             ; Reset the sprite to the given coarse position.
+
+    RTS                     ; Return from subroutine.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
