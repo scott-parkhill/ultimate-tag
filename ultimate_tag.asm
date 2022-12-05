@@ -12,6 +12,7 @@
     org $80                 ; Set origin of segment at beginning of RAM.
 
 PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
+SpriteHeight        .byte   ; Saves the sprite's height.
 
 ; Player and NPC coordinates.
 PlayerX             .byte   ; The player's X coordinate. Coordinates are given with the origin at the bottom left of the screen.
@@ -67,7 +68,10 @@ Initialize                  ; Defines the Initialize section.
     STX PlayerY             ; Set player to be halfway up the screen.
     STX NpcY                ; Set NPC to be halfway up the screen.
 
-    LDY #15                 ; Load 15 into Y, the offset for the SpriteData.
+    LDY #16                 ; Load 16 into Y, to store the sprite height.
+    STY SpriteHeight        ; Saves the value 16 into the SpriteHeight variable.
+    DEY                     ; Decrement Y to get the sprite offset.
+; TODO Probably remove this DEY with new sprite printing mechanism.
 
 ; Loads the sprite into RAM. This is done in order to properly "race the beam" in the HBlankLoop.
 ; Loading the sprite data during the printing period resulted in too many clock cycles used when
@@ -126,38 +130,40 @@ VBlankPeriod
 
     STA WSYNC               ; Wait for next scanline.
 
-; These two sections (SetPrintPlayerVblank and SetPrintNpcVblank) are so that if the sprites are at the top of the screen,
-; their bitmap line value is read into the graphics register now. Otherwise, their heads would be cut off on the very top line
-; because of the way that the graphics registers are set in the visible frame part (as done during the HBLANK period).
-SetPrintPlayerVblank        
-    CPX PlayerY             ; Compare player's Y position with the line number in X.
-    BNE SetPrintNpcVblank   ; If the top of the sprite is not inline with current line being printed, skip.
-    STX PrintPlayerSprite   ; Set print player sprite to true.
-    LDY PlayerSpriteCount   ; Get the player sprite count.
-    LDA Sprite,Y            ; Get the bitmap line.
-    STA PlayerSpriteMap     ; Save the line to print.
-    DEY                     ; Decrement the height count.
-    STY PlayerSpriteCount   ; Save the height count.
+VblankSetPlayerMap
+    TXA                     ; Transfer X, the current line, to accumulator.
+    SEC                     ; Set the carry bit in order to do subtraction. Subtraction expects the carry bit to be set.
+    SBC PlayerY             ; Subtract the player's Y position from the line number in the accumulator to get a local coordinate.
+    CMP SpriteHeight        ; Compare this value with the height of the sprite.
+    BCC VblankSavePlayerSprite  ; Branch on carry clear. This works because carry clear on CMP is accumulator < SpriteHeight (both C and Z bits clear in this case, so also not zero).
+    LDA #0                  ; Otherwise, we're not in the sprite so set the accumulator to zero to reset the graphics register.
 
-SetPrintNpcVblank
+VblankSavePlayerSprite
+    TAY                     ; Transfer the accumulator into Y.
+    LDA Sprite,Y            ; Load the sprite bitmap line value into the accumulator using the offset that was computed.
+    STA PlayerSpriteMap     ; Save this bitmap line to be printed at the beginning of the HBLANK.
+
+VblankSetNpcMap
+    TXA                     ; Transfer X, the current line, to accumulator.
+    SEC                     ; Set the carry bit in order to do subtraction. Subtraction expects the carry bit to be set.
+    SBC NpcY                ; Subtract the NPC's Y position from the line number in the accumulator to get a local coordinate.
+    CMP SpriteHeight        ; Compare this value with the height of the sprite.
+    BCC VblankSaveNpcSprite ; Branch on carry clear. This works because carry clear on CMP is accumulator < SpriteHeight (both C and Z bits clear in this case, so also not zero).
+    LDA #0                  ; Otherwise, we're not in the sprite so set the accumulator to zero to reset the graphics register.
+
+VblankSaveNpcSprite
+    TAY                     ; Transfer the accumulator into Y.
+    LDA Sprite,Y            ; Load the sprite bitmap line value into the accumulator using the offset that was computed.
+    STA NpcSpriteMap        ; Save this bitmap line to be printed at the beginning of the HBLANK.
+
+; Finish setting up the sprites for the first HBLANK, so strobe WSYNC then loop.
     STA WSYNC               ; Strobe.
-    CPX NpcY                ; Compare NPC's Y position with the line number in X.
-    BNE SkipSetNpcPrint     ; If player not at the top of the screen, skip.
-    STX PrintNpcSprite      ; Set print NPC sprite to true.
-    LDY NpcSpriteCount      ; Get the NPC sprite count.
-    LDA Sprite,Y            ; Get the bitmap line.
-    STA NpcSpriteMap        ; Save the line to print.
-    DEY                     ; Decrement the height counter.
-    STY NpcSpriteCount      ; Save the height count.
 
-SkipSetNpcPrint
-    STA WSYNC               ; Strobe.
-
-    LDX #34                 ; Store the value 37 into X to decrement down for each line of VBLANK.
+    LDX #35                 ; Store the value 37 into X to decrement down for each line of VBLANK.
                             ; Counting down is better because you save an instruction by being able
                             ; to use the zero bit in the processor status register instead of having
                             ; to do a CMP operation.
-                            ; Minus 3 for three WYSNCs in the code.
+                            ; Minus 2 WYSNCs in the code.
 
 ; With all logic complete, loop until the visible frame portion of the code.
 VBlankLoop
@@ -181,63 +187,37 @@ HBlankInitialize
 
 ; Set registers for the TIA within 22 CPU cycles of HBLANK before it starts printing to the screen.
 HBlankLoop
-
     LDA PlayerSpriteMap     ; Load the bitmap line to print for the player.
     STA GRP0                ; Set the graphics register to print that line.
 
     LDA NpcSpriteMap        ; Load the bitmap line to print the NPC.
     STA GRP1                ; Set the graphics register to print that line.
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;; Player Sprite Printing
-StartSetPlayer
-    DEX                     ; Reduce X for the current comparisons against the Y values.
-    LDA PrintPlayerSprite   ; Load whether we are currently printing the player's sprite.
-    BNE SetPlayerMap        ; If we ARE printing the player, skip to that part. Otherwise, fall through.
-
-SetPrintPlayer        
-    CPX PlayerY             ; Compare player's Y position with the line number in X.
-    BNE StartSetNpc         ; If the top of the sprite is not inline with current line being printed, skip.
-    STX PrintPlayerSprite   ; Set print player sprite to true.
-
 SetPlayerMap
-    LDY PlayerSpriteCount   ; Load the player sprite's current memory offset.
-    LDA Sprite,Y            ; Load the sprite's bitmap line into the accumulator.
-    STA PlayerSpriteMap     ; Save the player's bitmap line to the player's sprite map variable.
-    DEY                     ; Decrement the offset for the sprite (as it is upside-down).
-    BMI PlayerFinished      ; If the offset is now negative, branch to turn off sprite printing.
-    STY PlayerSpriteCount   ; Store the new sprite offset.
-    JMP StartSetNpc         ; Jump to start setting up values for the NPC.
+    TXA                     ; Transfer X, the current line, to accumulator.
+    SEC                     ; Set the carry bit in order to do subtraction. Subtraction expects the carry bit to be set.
+    SBC PlayerY             ; Subtract the player's Y position from the line number in the accumulator to get a local coordinate.
+    CMP SpriteHeight        ; Compare this value with the height of the sprite.
+    BCC SavePlayerSprite    ; Branch on carry clear. This works because carry clear on CMP is accumulator < SpriteHeight (both C and Z bits clear in this case, so also not zero).
+    LDA #0                  ; Otherwise, we're not in the sprite so set the accumulator to zero to reset the graphics register.
 
-PlayerFinished
-    INY                     ; Y right now is -1, so increment it to zero.
-    STY PrintPlayerSprite   ; Turn off player sprite printing.
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;; NPC Sprite Printing
-StartSetNpc
-    LDA PrintNpcSprite      ; Load whether we are currently printing the npc's sprite.
-    BNE SetNpcMap           ; If we ARE printing the npc, skip to that part. Otherwise, fall through.
-
-SetPrintNpc        
-    CPX NpcY                ; Compare player's Y position with the line number in X.
-    BNE SpriteSettingDone   ; If the top of the sprite is not inline with current line being printed, skip.
-    STX PrintNpcSprite      ; Set print player sprite to true.
+SavePlayerSprite
+    TAY                     ; Transfer the accumulator into Y.
+    LDA Sprite,Y            ; Load the sprite bitmap line value into the accumulator using the offset that was computed.
+    STA PlayerSpriteMap     ; Save this bitmap line to be printed at the beginning of the HBLANK.
 
 SetNpcMap
-    LDY NpcSpriteCount      ; Load the player sprite's current memory offset.
-    LDA Sprite,Y            ; Load the sprite's bitmap line into the accumulator.
-    STA NpcSpriteMap        ; Save the player's bitmap line to the player's sprite map variable.
-    DEY                     ; Decrement the offset for the sprite (as it is upside-down).
-    BMI NpcFinished         ; If the offset is now negative, branch to turn off sprite printing.
-    STY NpcSpriteCount      ; Store the new sprite offset.
-    JMP SpriteSettingDone   ; Jump to start setting up values for the NPC.
+    TXA                     ; Transfer X, the current line, to accumulator.
+    SEC                     ; Set the carry bit in order to do subtraction. Subtraction expects the carry bit to be set.
+    SBC NpcY                ; Subtract the NPC's Y position from the line number in the accumulator to get a local coordinate.
+    CMP SpriteHeight        ; Compare this value with the height of the sprite.
+    BCC SaveNpcSprite       ; Branch on carry clear. This works because carry clear on CMP is accumulator < SpriteHeight (both C and Z bits clear in this case, so also not zero).
+    LDA #0                  ; Otherwise, we're not in the sprite so set the accumulator to zero to reset the graphics register.
 
-; TODO
-NpcFinished
-    INY                     ; Y right now is -1, so increment it to zero.
-    STY PrintNpcSprite      ; Turn off player sprite printing.
-
-SpriteSettingDone
-    INX                     ; Increment X back up to it's actual current line number.
+SaveNpcSprite
+    TAY                     ; Transfer the accumulator into Y.
+    LDA Sprite,Y            ; Load the sprite bitmap line value into the accumulator using the offset that was computed.
+    STA NpcSpriteMap        ; Save this bitmap line to be printed at the beginning of the HBLANK.
 
 ; Do logic operations within 54 CPU cycles while the TIA is printing the image to the screen.
 PrintingPeriod
