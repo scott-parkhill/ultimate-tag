@@ -64,7 +64,7 @@ Initialize                  ; Defines the Initialize section.
     STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
-    LDX #104                ; Sets X so the sprites sits halfway up the screen.
+    LDX #96                ; Sets X so the sprites sits halfway up the screen.
     STX PlayerY             ; Set player to be halfway up the screen.
     STX NpcY                ; Set NPC to be halfway up the screen.
 
