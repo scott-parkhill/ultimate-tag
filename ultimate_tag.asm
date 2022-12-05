@@ -14,12 +14,21 @@
 ; Variables for who is it and the height in pixels of the player sprite.
 PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
 SpriteHeight        .byte   ; Saves the sprite's height.
+WindowTop           .byte   ; Defines the top edge of the screen.
+WindowRight         .byte   ; Defines the right edge of the screen.
+WindowBottom        .byte   ; Defines the bottom edge of the screen.
+WindowLeft          .byte   ; Defines the left edge of the screen.
 
 ; Player and NPC coordinates.
 PlayerX             .byte   ; The player's X coordinate. Coordinates are given with the origin at the bottom left of the screen.
 PlayerY             .byte   ; The player's Y coordinate.
+PlayerPreviousX     .byte   ; For handling collisions.
+PlayerPreviousY     .byte   ; For handling collisions.
 NpcX                .byte   ; The Npc's X coordinate.
 NpcY                .byte   ; The Npc's Y coordinate.
+NpcPreviousX        .byte   ; For handling collisions.
+NpcPreviousY        .byte   ; For handling collisions.
+
 
 ; Powerups.
 PowerupTimer        .byte   ; 1 for timer set, 0 for not.
@@ -63,6 +72,15 @@ Initialize                  ; Defines the Initialize section.
     STA PlayerSpriteMap     ; Set to zeros.
     STA NpcSpriteMap        ; Set to zeros.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
+
+    LDA #173                ; Set window top edge.
+    STA WindowTop           ; Save window top edge.
+    LDA #145                ; Set window right edge.
+    STA WindowRight         ; Save window right edge.
+    LDA #4                  ; Set window bottom edge.
+    STA WindowBottom        ; Save window bottom edge.
+    LDA #0                  ; Set window left edge.
+    STA WindowLeft          ; Save window left edge.
 
     LDA #%11111111          ; Load the "npc it" value into the accumulator.
     STA PlayerIt            ; Initialize the NPC to "it".
@@ -254,7 +272,7 @@ OverscanPeriod
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
     JSR SetPlayerPosition   ; Call subroutine to change the player's position based on joystick inputs.
     JSR ExecuteNpcAi        ; Run the NPC's AI.
-    JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
+    ; JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
 
 OverscanWaitForTimer
     LDA INTIM               ; Load timer value into accumulator.
@@ -320,6 +338,16 @@ PlayerCollisions subroutine
     EOR PlayerIt            ; Flips the bits in the PlayerIt variable.
     STA PlayerIt            ; Store the value.
 
+    LDA PlayerPreviousX     ; Get player previous x value.
+    STA PlayerX             ; Save it in player value.
+    LDA PlayerPreviousY     ; Get previous Y.
+    STA PlayerY             ; Store in player value.
+
+    LDA NpcPreviousX        ; Get NPC previous x value.
+    STA NpcX                ; Save it.
+    LDA NpcPreviousY        ; Get NPC previous y value.
+    STA NpcY                ; Save it.
+
 .ExitPlayerCollisions
     RTS
 
@@ -331,34 +359,58 @@ SetPlayerPosition subroutine
     ; This means for left and right we can do bit comparisons since the N and V flags are set from the memory value.
     ; Therefore if bit 6 is set (flag V), the player has NOT moved left. If bit 7 is set (flag N), the player has NOT moved right.
 
+    LDA PlayerX             ; Load player X.
+    STA PlayerPreviousX     ; Save player x.
+    LDA PlayerY             ; Load player Y.
+    STA PlayerPreviousY     ; Save player y.
+
 .CheckPlayerLeft
+    LDA WindowLeft          ; Get left edge of screen.
+    SEC
+    SBC PlayerX
+    BEQ .CheckPlayerRight   ; If at left side of the window, skip left checks.
+
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the overflow flag as described above.
-    BVS .CheckPlayerRight    ; If the overflow flag is set, skip to checking movement right as described above.
+    BVS .CheckPlayerRight   ; If the overflow flag is set, skip to checking movement right as described above.
     DEC PlayerX             ; Otherwise, the player has moved left so decrement X.
     LDA #0                  ; Load 0 into accumulator for "left".
     STA PlayerDirection     ; Save into player direction.
-    ; TODO add in logic to check boundaries??
 
 .CheckPlayerRight
+    LDA WindowRight         ; Load WindowRight into accumulator.
+    SEC
+    SBC PlayerX
+    BEQ .CheckPlayerUp      ; If against the right edge of screen, skip moving right.
+
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the negative flag as described above.
-    BMI .CheckPlayerUp       ; If the bit is set, skip to checking up.
+    BMI .CheckPlayerUp      ; If the bit is set, skip to checking up.
     INC PlayerX             ; Otherwise, the player has moved right so increment X.
     LDA #8                  ; Load 8 into accumulator for "right".
     STA PlayerDirection     ; Save into player direction.
 
 .CheckPlayerUp
+    LDA WindowTop        ; Load window height.
+    SEC
+    SBC PlayerY
+    BEQ .CheckPlayerDown    ; Skip up if at top of screen.
+
     LDA #%00010000          ; Loads mask into accumulator.
     BIT SWCHA               ; Compare with accumulator.
-    BNE .CheckPlayerDown     ; If up hasn't been pressed, skip to down.
+    BNE .CheckPlayerDown    ; If up hasn't been pressed, skip to down.
     INC PlayerY             ; Otherwise, increment player's Y value.
 
 .CheckPlayerDown
-    ASL                     ; Shift the bit over in the accumulator so that the mask is 0010 0000.
+    LDA WindowBottom        ; Get bottom edge of screen.
+    SEC
+    SBC PlayerY
+    BEQ .Exit               ; Exit if at bottom of screen already.
+
+    LDA #%00100000          ; Set mask.
     BIT SWCHA               ; Bit compare with accumulator.
-    BNE .ExitPlayerPosition  ; If down hasn't been pressed, exit the subroutine.
+    BNE .Exit               ; If down hasn't been pressed, exit the subroutine.
     DEC PlayerY             ; Otherwise, player has moved down so decrement Y value.
 
-.ExitPlayerPosition
+.Exit
     RTS
 
 
@@ -390,41 +442,117 @@ SetHorizontalPosition subroutine
 
     RTS                     ; Return from subroutine.
 
+
 ; The subroutine that does all the calculations for NPC logic.
 ExecuteNpcAi subroutine
 ; TODO Handle all the logic for the boundaries.
 .CheckHorizontalMovement
+    LDA NpcX                ; Load NpcX into accumulator.
+    STA NpcPreviousX        ; Store X value in previous.
+    LDA NpcY                ; Load y coord into accumulator.
+    STA NpcPreviousY        ; Store into previous.
+
     LDA PlayerX             ; Load the player x-coordinate into A.
     SEC                     ; Set the carry bit for subtraction.
     SBC NpcX                ; Subtract X from the accumulator.
-    BPL .NpcMoveRight        ; Branch to right movement if positive or zero.
+    BPL .NpcMoveRight       ; Branch to right movement if positive or zero.
                             ; Otherwise, handle running left.
 
 .HandleRunLeft
     LDA PlayerIt            ; Load player it.
-    BEQ .NpcMoveRight       ; If the NPC is to run left but is it, then run right.
+    BNE .NpcMoveRight       ; If the NPC is to run left but is it, then run right.
     JMP .NpcMoveLeft        ; Otherwise, run left as intended.
 
 .HandleRunRight
     LDA PlayerIt            ; Load player it into accumulator.
-    BEQ .NpcMoveLeft        ; If the NPC is to run right but is it, then run left.
+    BNE .NpcMoveLeft        ; If the NPC is to run right but is it, then run left.
                             ; Otherwise, run right.
 
 .NpcMoveRight
+    LDA WindowRight         ; Load window width into accumulator.
+    SEC
+    SBC NpcX
+    BEQ .CheckVerticalMovement  ; If the sprite is at the window's edge, continue.
+    
     INC NpcX                ; Run right.
+    LDA WindowRight
+    SEC
+    SBC NpcX
+    BEQ .CheckVerticalMovement  ; Skip powerup check if at window width.
+
     LDA NpcPowerup          ; Load powerup data.
     BEQ .CheckVerticalMovement  ; Continue if no powerup.
     INC NpcX                ; Otherwise, double movement.
 
 .NpcMoveLeft
+    LDA WindowLeft          ; Get left edge of screen.
+    SEC
+    SBC NpcX
+    BEQ .CheckVerticalMovement  ; If at window edge, skip to vertical movement.
+
     DEC NpcX                ; Run left.
+    LDA WindowLeft
+    SEC
+    SBC NpcX
+    BEQ .CheckVerticalMovement  ; If at window edge, skip powerup and go to vertical movement.
+
     LDA NpcPowerup          ; Load powerup data.
     BEQ .CheckVerticalMovement  ; If no powerup, continue.
     DEC NpcX                ; Otherwise, double movement.
+                            ; Fall into checking vertical movement.
 
 .CheckVerticalMovement
-    RTS
+    LDA PlayerY             ; Load the player's Y coordinate into accumulator.
+    SEC                     ; Set carry bit for subtraction.
+    SBC NpcY                ; Subtract NPC's position from the player's.
+    BPL .HandleRunUp        ; If the value is positive, player is above the NPC.
+                            ; Otherwise, fall into handling run down.
 
+.HandleRunDown
+    LDA PlayerIt            ; Load the player it status.
+    BNE .NpcMoveUp          ; If the npc is supposed to move down but is it, move up instead.
+    JMP .NpcMoveDown        ; Otherwise, move down as intended.
+
+.HandleRunUp
+    LDA PlayerIt            ; Load the player it status.
+    BNE .NpcMoveDown        ; If the npc is supposed to run up but is it, run down instead.
+                            ; Otherwise, fall into moving up.
+.NpcMoveUp
+    LDA WindowTop        ; Load window height into accumulator.
+    SEC
+    SBC NpcY
+    BEQ .Exit               ; If already at the top, exit.
+
+    INC NpcY                ; Otherwise, increase the y coordinate.
+    LDA WindowTop
+    SEC
+    SBC NpcY
+    BEQ .Exit               ; If at top, don't check powerup status, just exit.
+
+    LDA NpcPowerup          ; Load powerup data.
+    BEQ .Exit               ; If no powerup, exit.
+    INC NpcY                ; Otherwise, double the speed.
+    JMP .Exit               ; Then exit.
+
+.NpcMoveDown
+    LDA WindowBottom        ; Get bottom of screen.
+    SEC
+    SBC NpcY
+    BEQ .Exit               ; If at bottom of screen, exit.
+    
+    DEC NpcY                ; Otherwise, move the NPC down.
+    LDA WindowBottom
+    SEC
+    SBC NpcY
+    BEQ .Exit               ; If at bottom, exit.
+
+    LDA NpcPowerup          ; Otherwise load powerup data.
+    BEQ .Exit               ; If no powerup, exit.
+    DEC NpcY                ; Otherwise, double movement speed.
+                            ; Fall into exit.
+
+.Exit
+    RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
