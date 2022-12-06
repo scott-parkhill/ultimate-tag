@@ -19,8 +19,7 @@ That objective, of course, is to not be *it*. And if you are *it*, you damn well
 1) You start as the player on the left
 2) You move with the arrow keys
 3) The player who is red is *it*
-4) Green orbs are a 1.25x speed powerup
-5) Blue orbs are a 2x speed powerup
+4) Your speed modulates every 3 seconds to give you an edge versus your opponent!
 
 ## Compilation and Running the Game
 
