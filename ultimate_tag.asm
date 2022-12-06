@@ -114,7 +114,7 @@ SpriteLoop
     DEY                     ; Decrease Y.
     BPL SpriteLoop          ; Repeat loop until Y is negative.
     
-    LDA #8
+    LDA #8                  ; Load "right" direction into accumulator.
     STA PlayerDirection     ; Sets the player direction to facing right.
 
     LDA #$9F                ; Loads background colour (light blue) into the accumulator.
@@ -209,8 +209,8 @@ VblankWaitForTimer
     STA HMOVE               ; Apply the fine horizontal offsets.
     
     ; Turn off VBLANK.
-    LDX #0
-    STA WSYNC
+    LDX #0                  ; Load zero into X.
+    STA WSYNC               ; Strobe.
     STX VBLANK              ; Stores X into VBLANK since we know X is zero at this point in the code.
 
     ; Now fall into the portion with HBLANKS and visible output to TV.
@@ -295,7 +295,7 @@ OverscanWaitForTimer
 ; Subroutine to set the colours for who is it. Manipulates accumulator.
 SetItColours subroutine
     LDA PlayerIt            ; Load the PlayerIt value into the accumulator.
-    BNE .NpcRed              ; Go to NpcRed if the value is non-zero.
+    BNE .NpcRed             ; Go to NpcRed if the value is non-zero.
 
 .PlayerRed
     STA COLUP1              ; Accumulator is zero at this point; set Npc to black.
@@ -325,10 +325,9 @@ UpdateTimeCounters subroutine
     DEC PowerupTimer        ; Decrement the powerup counter.
     BNE .Exit               ; If timer hasn't reached zero, branch.
 
-    ; LDA PlayerPowerup
-    ; STA NpcPowerup
-    LDA #$FF                ; Load $FF into accumulator.
-    EOR PlayerPowerup       ; Flip player powerup.
+    LDA PlayerPowerup       ; Take the current player powerup and put it into the accumulator.
+    ; STA NpcPowerup          ; Save it into the NPC's powerup slot in order to swap who has the powerup.
+    EOR #$FF                ; Flip player powerup.
     STA PlayerPowerup       ; Store player powerup.
 
     LDA #3                  ; Put 3 into accumulator.
@@ -411,8 +410,8 @@ SetPlayerPosition subroutine
 
 .CheckPlayerRight
     LDA WindowRight         ; Load WindowRight into accumulator.
-    SEC
-    SBC PlayerX
+    SEC                     ; Set carry bit for subtraction.
+    SBC PlayerX             ; Get if player is on the edge of the screen.
     BEQ .CheckPlayerUp      ; If against the right edge of screen, skip moving right.
 
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the negative flag as described above.
@@ -432,8 +431,8 @@ SetPlayerPosition subroutine
 
 .CheckPlayerUp
     LDA WindowTop           ; Load window height.
-    SEC
-    SBC PlayerY
+    SEC                     ; Set carry bit for subtraction.
+    SBC PlayerY             ; Get if player is on the edge of the screen.
     BEQ .CheckPlayerDown    ; Skip up if at top of screen.
 
     LDA #%00010000          ; Loads mask into accumulator.
@@ -453,8 +452,8 @@ SetPlayerPosition subroutine
 
 .CheckPlayerDown
     LDA WindowBottom        ; Get bottom edge of screen.
-    SEC
-    SBC PlayerY
+    SEC                     ; Set carry bit for subtraction.
+    SBC PlayerY             ; Get if player is on the edge of the screen.
     BEQ .Exit               ; Exit if at bottom of screen already.
 
     LDA #%00100000          ; Set mask.
@@ -472,7 +471,7 @@ SetPlayerPosition subroutine
     DEC PlayerY             ; Otherwise, double speed.
 
 .Exit
-    RTS
+    RTS                     ; Return from subroutine.
 
 
 ; This subroutine sets the horizontal position of a given sprite. This should be called in the VBLANK section.
@@ -544,17 +543,17 @@ ExecuteNpcAi subroutine
 
 .NpcMoveRight
     LDA WindowRight         ; Load window width into accumulator.
-    SEC
-    SBC NpcX
+    SEC                     ; Set carry bit for subtraction.
+    SBC NpcX                ; Get if NPC is at the edge of the screen.
     BEQ .CheckVerticalMovement  ; If the sprite is at the window's edge, continue.
     
     INC NpcX                ; Run right.
     LDA #8                  ; Load 8 into accumulator for "right".
-    STA NpcDirection     ; Save into npc direction.
+    STA NpcDirection        ; Save into npc direction.
 
-    LDA WindowRight
-    SEC
-    SBC NpcX
+    LDA WindowRight         ; Load the window edge.
+    SEC                     ; Set carry bit for subtraction.
+    SBC NpcX                ; See if NPC is at the edge of the screen.
     BEQ .CheckVerticalMovement  ; Skip powerup check if at window width.
 
     LDA NpcPowerup          ; Load powerup data.
@@ -563,17 +562,17 @@ ExecuteNpcAi subroutine
 
 .NpcMoveLeft
     LDA WindowLeft          ; Get left edge of screen.
-    SEC
-    SBC NpcX
+    SEC                     ; Set carry bit for subtraction.
+    SBC NpcX                ; See if npc is at the edge of the screen.
     BEQ .CheckVerticalMovement  ; If at window edge, skip to vertical movement.
 
     DEC NpcX                ; Run left.
     LDA #0                  ; Load 0 into accumulator for "left".
-    STA NpcDirection     ; Save into npc direction.
+    STA NpcDirection        ; Save into npc direction.
 
-    LDA WindowLeft
-    SEC
-    SBC NpcX
+    LDA WindowLeft          ; Get edge of screen.
+    SEC                     ; Set carry bit.
+    SBC NpcX                ; See if on screen edge.
     BEQ .CheckVerticalMovement  ; If at window edge, skip powerup and go to vertical movement.
 
     LDA NpcPowerup          ; Load powerup data.
@@ -598,15 +597,15 @@ ExecuteNpcAi subroutine
     BEQ .NpcMoveDown        ; If the npc is supposed to run up but is it, run down instead.
                             ; Otherwise, fall into moving up.
 .NpcMoveUp
-    LDA WindowTop        ; Load window height into accumulator.
-    SEC
-    SBC NpcY
+    LDA WindowTop           ; Load window height into accumulator.
+    SEC                     ; Set carry bit.
+    SBC NpcY                ; See if on screen edge.
     BEQ .Exit               ; If already at the top, exit.
 
     INC NpcY                ; Otherwise, increase the y coordinate.
-    LDA WindowTop
-    SEC
-    SBC NpcY
+    LDA WindowTop           ; Load screen edge.
+    SEC                     ; Set carry bit.
+    SBC NpcY                ; Load if on screen edge.
     BEQ .Exit               ; If at top, don't check powerup status, just exit.
 
     LDA NpcPowerup          ; Load powerup data.
@@ -616,14 +615,14 @@ ExecuteNpcAi subroutine
 
 .NpcMoveDown
     LDA WindowBottom        ; Get bottom of screen.
-    SEC
-    SBC NpcY
+    SEC                     ; Set carry bit. 
+    SBC NpcY                ; Get if on screen edge.
     BEQ .Exit               ; If at bottom of screen, exit.
     
     DEC NpcY                ; Otherwise, move the NPC down.
-    LDA WindowBottom
-    SEC
-    SBC NpcY
+    LDA WindowBottom        ; Get screen edge.
+    SEC                     ; Set carry bit.
+    SBC NpcY                ; Get if on screen edge.
     BEQ .Exit               ; If at bottom, exit.
 
     LDA NpcPowerup          ; Otherwise load powerup data.
@@ -632,7 +631,7 @@ ExecuteNpcAi subroutine
                             ; Fall into exit.
 
 .Exit
-    RTS
+    RTS                     ; Exit subroutine.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SPRITES
 
