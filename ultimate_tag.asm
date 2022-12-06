@@ -53,7 +53,6 @@ Sprite              ds 16   ; Array for the sprite data. This is needed in order
 
 ; This logic is a bit weird but done so that branching is on positive. Basically, -1 to 8 = 10, etc.
 SecondCounter       .byte   ; Initializes to 59 and re-initializes to 58, as there are 60 frames a second. When zero, a second has passed.
-TenSecondCounter    .byte   ; Initializes to 9 and re-initializes to 8. 1 is deducted each second. When zero, 10 seconds have passed.
 
 ; Creates segment for the main program.
     seg Program             ; Defines the initialized code segment of the program.
@@ -70,9 +69,11 @@ Initialize                  ; Defines the Initialize section.
     STA PrintNpcSprite      ; Set to don't print.
     STA PlayerSpriteMap     ; Set to zeros.
     STA NpcSpriteMap        ; Set to zeros.
-    STA PlayerPowerup       ; Set player powerup to off.
     STA NpcPowerup          ; Set NPC powerup to off.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
+
+    LDA #3                  ; Set the powerup timer.
+    STA PowerupTimer        ; Save the powerup timer.
 
     LDA #173                ; Set window top edge.
     STA WindowTop           ; Save window top edge.
@@ -86,6 +87,7 @@ Initialize                  ; Defines the Initialize section.
 
     LDA #$FF                ; Load the "npc it" value into the accumulator.
     STA PlayerIt            ; Initialize the NPC to "it".
+    STA PlayerPowerup       ; Set player powerup to on.
 
     LDX #96                 ; Sets X so the sprites sits halfway up the screen.
     STX PlayerY             ; Set player to be halfway up the screen.
@@ -314,26 +316,25 @@ UpdateTimeCounters subroutine
 
     DEC NpcDelayCounter     ; Update the NPC delay counter.
     DEC SecondCounter       ; Decrement the seconds counter.
-    BPL .ExitUpdateCounters ; If a second hasn't passed yet, exit the subroutine.
+    BPL .Exit               ; If a second hasn't passed yet, exit the subroutine.
 
 ; Resets the second counter and decrements tens counter and powerup counter.
     LDA #58                 ; Load 60 into accumulator.
     STA SecondCounter       ; Save 60 into the second counter.
+
     DEC PowerupTimer        ; Decrement the powerup counter.
-    BNE .DecrementTens      ; If timer hasn't reached zero, branch.
-    LDA #0                  ; Load zero into accumulator.
-    STA PlayerPowerup       ; Reset player powerup.
-    STA NpcPowerup          ; Reset NPC powerup.
+    BNE .Exit               ; If timer hasn't reached zero, branch.
 
-.DecrementTens
-    DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
-    BPL .ExitUpdateCounters ; Exit the subroutine if the ten secound counter is not yet zero.
+    ; LDA PlayerPowerup
+    ; STA NpcPowerup
+    LDA #$FF                ; Load $FF into accumulator.
+    EOR PlayerPowerup       ; Flip player powerup.
+    STA PlayerPowerup       ; Store player powerup.
 
-; Resets the tens counter and puts the ball on the playfield.
-    LDA #8                  ; Load 10 into the accumulator.
-    STA TenSecondCounter    ; Save 10 into the ten second counter.
+    LDA #3                  ; Put 3 into accumulator.
+    STA PowerupTimer        ; Store in powerup timer.
 
-.ExitUpdateCounters
+.Exit
     RTS                     ; Return from the subroutine.
 
 
@@ -548,6 +549,9 @@ ExecuteNpcAi subroutine
     BEQ .CheckVerticalMovement  ; If the sprite is at the window's edge, continue.
     
     INC NpcX                ; Run right.
+    LDA #8                  ; Load 8 into accumulator for "right".
+    STA NpcDirection     ; Save into npc direction.
+
     LDA WindowRight
     SEC
     SBC NpcX
@@ -564,6 +568,9 @@ ExecuteNpcAi subroutine
     BEQ .CheckVerticalMovement  ; If at window edge, skip to vertical movement.
 
     DEC NpcX                ; Run left.
+    LDA #0                  ; Load 0 into accumulator for "left".
+    STA NpcDirection     ; Save into npc direction.
+
     LDA WindowLeft
     SEC
     SBC NpcX
