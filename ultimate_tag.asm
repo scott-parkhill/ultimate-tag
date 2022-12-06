@@ -13,6 +13,8 @@
 
 ; Variables for who is it and the height in pixels of the player sprite.
 PlayerIt            .byte   ; 0000 0000 for it, and 1111 1111 for not it.
+NpcDelay            .byte   ; $00 for no delay, $FF for delay.
+NpcDelayCounter     .byte   ; Initializes to 59, when it hits zero the delay ends (as there are 60 frames a second).
 SpriteHeight        .byte   ; Saves the sprite's height.
 WindowTop           .byte   ; Defines the top edge of the screen.
 WindowRight         .byte   ; Defines the right edge of the screen.
@@ -29,10 +31,8 @@ NpcY                .byte   ; The Npc's Y coordinate.
 NpcPreviousX        .byte   ; For handling collisions.
 NpcPreviousY        .byte   ; For handling collisions.
 
-
 ; Powerups.
-PowerupTimer        .byte   ; 1 for timer set, 0 for not.
-PowerupCooldown     .byte   ; 1 for timer set, 0 for not.
+PowerupTimer        .byte   ; 3 second powerup timer.
 PlayerPowerup       .byte   ; The player's powerup status. 0 = no powerup, 1 = 2x powerup.
 NpcPowerup          .byte   ; The Npc's powerup status. 0 = no powerup, 1 = 2x powerup.
 
@@ -52,7 +52,6 @@ NpcSpriteMap        .byte   ; The bitmap level for the Npc.
 Sprite              ds 16   ; Array for the sprite data. This is needed in order to save on clock cycles by having the sprite zero-page indexed.
 
 ; This logic is a bit weird but done so that branching is on positive. Basically, -1 to 8 = 10, etc.
-HalfSecondCounter   .byte   ; Initializes to 29 and re-initializes to 28, as there are 60 frames a second. When zero, half a second has passed.
 SecondCounter       .byte   ; Initializes to 59 and re-initializes to 58, as there are 60 frames a second. When zero, a second has passed.
 TenSecondCounter    .byte   ; Initializes to 9 and re-initializes to 8. 1 is deducted each second. When zero, 10 seconds have passed.
 
@@ -71,6 +70,8 @@ Initialize                  ; Defines the Initialize section.
     STA PrintNpcSprite      ; Set to don't print.
     STA PlayerSpriteMap     ; Set to zeros.
     STA NpcSpriteMap        ; Set to zeros.
+    STA PlayerPowerup       ; Set player powerup to off.
+    STA NpcPowerup          ; Set NPC powerup to off.
     JSR SetItColours        ; Go to subroutine to set the colours for who is it.
 
     LDA #173                ; Set window top edge.
@@ -81,15 +82,16 @@ Initialize                  ; Defines the Initialize section.
     STA WindowBottom        ; Save window bottom edge.
     LDA #0                  ; Set window left edge.
     STA WindowLeft          ; Save window left edge.
+    STA NpcDelay            ; Set NPC to no delay.
 
-    LDA #%11111111          ; Load the "npc it" value into the accumulator.
+    LDA #$FF                ; Load the "npc it" value into the accumulator.
     STA PlayerIt            ; Initialize the NPC to "it".
 
     LDX #96                 ; Sets X so the sprites sits halfway up the screen.
     STX PlayerY             ; Set player to be halfway up the screen.
     STX NpcY                ; Set NPC to be halfway up the screen.
 
-    LDX #10                 ; Loads X with 10, the starting x coordinate for the player.
+    LDX #20                 ; Loads X with 10, the starting x coordinate for the player.
     STX PlayerX             ; Saves the X value into PlayerX.
 
 ; 149 is right edge of the screen.
@@ -116,6 +118,9 @@ SpriteLoop
     LDA #$9F                ; Loads background colour (light blue) into the accumulator.
     STA COLUBK              ; Sets the background colour register in the TIA.
 
+    LDA #$74                ; Load dark blue into register.
+    STA COLUPF              ; Set the playfield (here just the ball) to dark blue.
+
     LDA #2                  ; Sets the binary value #%0000_0010, which will turn on VBLANK and VSYNC.
     STA VBLANK              ; Sets the register bit value for VBLANK to ON.
 
@@ -139,9 +144,9 @@ FrameStart
 
 ; Handles the 37 lines of vertical blank. 76 CPU clock cycles per VBLANK period.
 VBlankPeriod
-    LDA #38                 ; Value used to skip a bunch of scanlines using the formula FLOOR((N*76+13)/64). Want to skip 34 scanlines here.
+    LDA #38                 ; Value used to skip a bunch of scanlines using the formula FLOOR((N*76+13)/64). Want to skip 32 scanlines here.
     STA WSYNC               ; Guarantee start of scanline.
-    STA TIM64T              ; Set the timer to skip 35 scanlines.
+    STA TIM64T              ; Set the timer to skip the scanlines.
 
     STA GRP0                ; Reset player graphics register. Accumulator is zero here.
     STA GRP1                ; Reset Npc graphics register.
@@ -159,10 +164,12 @@ VBlankPeriod
     LDX #0                  ; Load player into X.
     LDA PlayerX             ; Load player X coordinate into accumulator.
     JSR SetHorizontalPosition   ; Set the horizontal position of the player.
+    ; WSYNC occurs.
 
-    LDX #1                  ; Lead the NPC into X.
+    LDX #1                  ; Load the NPC into X.
     LDA NpcX                ; Load the NPC X coordinate into accumulator.
     JSR SetHorizontalPosition   ; Set the horizontal position of the NPC.
+    ; WSYNC occurs.
 
     LDX #192                ; Sets X to the number of lines for the visible frame.
 VblankSetPlayerMap
@@ -272,7 +279,7 @@ OverscanPeriod
     JSR SetItColours        ; Set the colours for who is it during the first overscan period.
     JSR SetPlayerPosition   ; Call subroutine to change the player's position based on joystick inputs.
     JSR ExecuteNpcAi        ; Run the NPC's AI.
-    ; JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
+    JSR UpdateTimeCounters  ; Update the time counters. This should be the last call in the overscan period logic.
 
 OverscanWaitForTimer
     LDA INTIM               ; Load timer value into accumulator.
@@ -304,24 +311,25 @@ SetItColours subroutine
 
 ; Subroutine to update the time counters.
 UpdateTimeCounters subroutine
-    DEC HalfSecondCounter   ; Decrement the half second counter.
-    BPL .UpdateSecondCounter ; Branch to updating the seconds counter if half second counter is not zero.
 
-; Resets the half second counter.
-    LDA #28                 ; Load 30 into accumulator.
-    STA HalfSecondCounter   ; Save 30 into the half second counter.
-
-.UpdateSecondCounter
+    DEC NpcDelayCounter     ; Update the NPC delay counter.
     DEC SecondCounter       ; Decrement the seconds counter.
-    BPL .ExitUpdateCounters  ; If a second hasn't passed yet, exit the subroutine.
+    BPL .ExitUpdateCounters ; If a second hasn't passed yet, exit the subroutine.
 
-; Resets the second counter and decrements tens counter.
+; Resets the second counter and decrements tens counter and powerup counter.
     LDA #58                 ; Load 60 into accumulator.
     STA SecondCounter       ; Save 60 into the second counter.
-    DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
-    BPL .ExitUpdateCounters  ; Exit the subroutine if the ten secound counter is not yet zero.
+    DEC PowerupTimer        ; Decrement the powerup counter.
+    BNE .DecrementTens      ; If timer hasn't reached zero, branch.
+    LDA #0                  ; Load zero into accumulator.
+    STA PlayerPowerup       ; Reset player powerup.
+    STA NpcPowerup          ; Reset NPC powerup.
 
-; Resets the tens counter.
+.DecrementTens
+    DEC TenSecondCounter    ; Decrement the 10 second counter as a second has passed.
+    BPL .ExitUpdateCounters ; Exit the subroutine if the ten secound counter is not yet zero.
+
+; Resets the tens counter and puts the ball on the playfield.
     LDA #8                  ; Load 10 into the accumulator.
     STA TenSecondCounter    ; Save 10 into the ten second counter.
 
@@ -332,12 +340,26 @@ UpdateTimeCounters subroutine
 ; Subroutine to change who is it based on NPC and player collisions.
 ; Note that PlayerIt will be 0000 0000 when the player is It, and 1111 1111 otherwise.
 PlayerCollisions subroutine
+
     BIT CXPPMM              ; The bit operation sets the N flag from the initial, un-ANDed value of memory bit 7, which represents player-player collisions.
-    BPL .ExitPlayerCollisions; If no collision occured, exit.
+    BPL .Exit               ; If no collision occured, exit.
+
+    LDA NpcDelay            ; Loads whether the delay is occuring right now from the NPC being it.
+    BNE .SkipSetDelay       ; If delay is occuring, then just reset the positions to previous.
+                            ; Otherwise, switch who is it.    
+
     LDA #%11111111          ; Loads 1111 1111 into the accumulator.
     EOR PlayerIt            ; Flips the bits in the PlayerIt variable.
     STA PlayerIt            ; Store the value.
 
+    BEQ .SkipSetDelay       ; If the value is $00 then the player is it so don't set NPC delay.
+    LDA NpcDelay            ; Load the NPC delay value.
+    EOR #$FF                ; Switch it.
+    STA NpcDelay            ; Save it.
+    LDA #59                 ; Set accumulator to 59.
+    STA NpcDelayCounter     ; Save into counter.
+
+.SkipSetDelay
     LDA PlayerPreviousX     ; Get player previous x value.
     STA PlayerX             ; Save it in player value.
     LDA PlayerPreviousY     ; Get previous Y.
@@ -348,8 +370,8 @@ PlayerCollisions subroutine
     LDA NpcPreviousY        ; Get NPC previous y value.
     STA NpcY                ; Save it.
 
-.ExitPlayerCollisions
-    RTS
+.Exit
+    RTS                     ; Exit subroutine.
 
 
 ; Subroutine to get joystick input and appropriately adjust player position.
@@ -366,8 +388,8 @@ SetPlayerPosition subroutine
 
 .CheckPlayerLeft
     LDA WindowLeft          ; Get left edge of screen.
-    SEC
-    SBC PlayerX
+    SEC                     ; Set carry bit for subtraction.
+    SBC PlayerX             ; Subtract from the player X value.
     BEQ .CheckPlayerRight   ; If at left side of the window, skip left checks.
 
     BIT SWCHA               ; Bit compare with accumulator. This is just to capture the overflow flag as described above.
@@ -375,6 +397,16 @@ SetPlayerPosition subroutine
     DEC PlayerX             ; Otherwise, the player has moved left so decrement X.
     LDA #0                  ; Load 0 into accumulator for "left".
     STA PlayerDirection     ; Save into player direction.
+
+    LDA WindowLeft          ; Load window left.
+    SEC                     ; Set carry bit for subtraction.
+    SBC PlayerX             ; Get if in the window still.
+    BEQ .CheckPlayerUp      ; If at the window's edge, skip powerup check.
+
+    LDA PlayerPowerup       ; Load powerup data.
+    BEQ .CheckPlayerUp      ; Continue if no powerup.
+    DEC PlayerX             ; Double speed otherwise.
+    JMP .CheckPlayerUp      ; If the player has gone left then they can't go right.
 
 .CheckPlayerRight
     LDA WindowRight         ; Load WindowRight into accumulator.
@@ -388,8 +420,17 @@ SetPlayerPosition subroutine
     LDA #8                  ; Load 8 into accumulator for "right".
     STA PlayerDirection     ; Save into player direction.
 
+    LDA WindowRight         ; Get window right edge.
+    SEC                     ; Set carry bit.
+    SBC PlayerX             ; See if player is at window's edge.
+    BEQ .CheckPlayerUp      ; If at window's edge, skip powerup check.
+
+    LDA PlayerPowerup       ; Load powerup data.
+    BEQ .CheckPlayerUp      ; Continue if no powerup.
+    INC PlayerX             ; Double speed otherwise.
+
 .CheckPlayerUp
-    LDA WindowTop        ; Load window height.
+    LDA WindowTop           ; Load window height.
     SEC
     SBC PlayerY
     BEQ .CheckPlayerDown    ; Skip up if at top of screen.
@@ -398,6 +439,16 @@ SetPlayerPosition subroutine
     BIT SWCHA               ; Compare with accumulator.
     BNE .CheckPlayerDown    ; If up hasn't been pressed, skip to down.
     INC PlayerY             ; Otherwise, increment player's Y value.
+
+    LDA WindowTop           ; Load window top edge.
+    SEC                     ; Set carry bit.
+    SBC PlayerY             ; See if on the edge.
+    BEQ .Exit               ; If on edge, skip powerup check.
+
+    LDA PlayerPowerup       ; Load powerup data.
+    BEQ .Exit               ; Exit if no powerup.
+    INC PlayerY             ; Otherwise, double speed.
+    RTS                     ; If the player has gone up then they can't go down.
 
 .CheckPlayerDown
     LDA WindowBottom        ; Get bottom edge of screen.
@@ -409,6 +460,15 @@ SetPlayerPosition subroutine
     BIT SWCHA               ; Bit compare with accumulator.
     BNE .Exit               ; If down hasn't been pressed, exit the subroutine.
     DEC PlayerY             ; Otherwise, player has moved down so decrement Y value.
+
+    LDA WindowBottom        ; Get bottom edge of screen.
+    SEC                     ; Set carry bit.
+    SBC PlayerY             ; Get if on edge of screen.
+    BEQ .Exit               ; If on edge, skip powerup check.
+
+    LDA PlayerPowerup       ; Load powerup data.
+    BEQ .Exit               ; Exit if no powerup is on.
+    DEC PlayerY             ; Otherwise, double speed.
 
 .Exit
     RTS
@@ -436,7 +496,7 @@ SetHorizontalPosition subroutine
     ASL                     ; Arithmetic shift left.
     ASL                     ; Arithmetic shift left.
     ASL                     ; Arithmetic shift left.
-    ASL                     ; Shift to get the fine offset.
+    ASL                     ; Shift to get the sprite fine offset.
     STA HMP0,X              ; Set the fine offset for the sprite.
     STA RESP0,X             ; Reset the sprite to the given coarse position.
 
@@ -445,13 +505,26 @@ SetHorizontalPosition subroutine
 
 ; The subroutine that does all the calculations for NPC logic.
 ExecuteNpcAi subroutine
-; TODO Handle all the logic for the boundaries.
 .CheckHorizontalMovement
+    ; Save previous NPC coordinate values.
     LDA NpcX                ; Load NpcX into accumulator.
     STA NpcPreviousX        ; Store X value in previous.
     LDA NpcY                ; Load y coord into accumulator.
     STA NpcPreviousY        ; Store into previous.
 
+    LDA NpcDelay            ; Load whether the NPC should be delayed or not.
+    BEQ .NormalMovement     ; If no delay is set, make the NPC move.
+    LDA NpcDelayCounter     ; Load the delay counter.
+    BMI .RemoveDelay        ; If a second has passed, then remove the delay.
+    RTS                     ; Otherwise, exit the routine so the NPC doesn't move.
+
+.RemoveDelay
+    LDA NpcDelay            ; Load the NPC delay.    
+    EOR #$FF                ; Otherwise, the delay is over so turn off the delay switch.
+    STA NpcDelay            ; Store the updated delay status.
+                            ; Then continue with movements.
+
+.NormalMovement
     LDA PlayerX             ; Load the player x-coordinate into A.
     SEC                     ; Set the carry bit for subtraction.
     SBC NpcX                ; Subtract X from the accumulator.
@@ -460,12 +533,12 @@ ExecuteNpcAi subroutine
 
 .HandleRunLeft
     LDA PlayerIt            ; Load player it.
-    BNE .NpcMoveRight       ; If the NPC is to run left but is it, then run right.
+    BEQ .NpcMoveRight       ; If the NPC is to run left but is it, then run right.
     JMP .NpcMoveLeft        ; Otherwise, run left as intended.
 
 .HandleRunRight
     LDA PlayerIt            ; Load player it into accumulator.
-    BNE .NpcMoveLeft        ; If the NPC is to run right but is it, then run left.
+    BEQ .NpcMoveLeft        ; If the NPC is to run right but is it, then run left.
                             ; Otherwise, run right.
 
 .NpcMoveRight
@@ -510,12 +583,12 @@ ExecuteNpcAi subroutine
 
 .HandleRunDown
     LDA PlayerIt            ; Load the player it status.
-    BNE .NpcMoveUp          ; If the npc is supposed to move down but is it, move up instead.
+    BEQ .NpcMoveUp          ; If the npc is supposed to move down but is it, move up instead.
     JMP .NpcMoveDown        ; Otherwise, move down as intended.
 
 .HandleRunUp
     LDA PlayerIt            ; Load the player it status.
-    BNE .NpcMoveDown        ; If the npc is supposed to run up but is it, run down instead.
+    BEQ .NpcMoveDown        ; If the npc is supposed to run up but is it, run down instead.
                             ; Otherwise, fall into moving up.
 .NpcMoveUp
     LDA WindowTop        ; Load window height into accumulator.
