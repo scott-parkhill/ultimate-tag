@@ -298,6 +298,7 @@ SetItColours subroutine
     BNE .NpcRed             ; Go to NpcRed if the value is non-zero.
 
 .PlayerRed
+    LDA #$70                ; Dark blue.
     STA COLUP1              ; Accumulator is zero at this point; set Npc to black.
     LDA #$32                ; Load red into accumulator.
     STA COLUP0              ; Set player colour register to red.
@@ -306,7 +307,7 @@ SetItColours subroutine
 .NpcRed
     LDA #$32                ; Load red into accumulator.
     STA COLUP1              ; Set NCP to red.
-    LDA #0                  ; Load black into accumulator.
+    LDA #$70                ; Load black into accumulator.
     STA COLUP0              ; Set player to black.
     RTS                     ; Return.
 
